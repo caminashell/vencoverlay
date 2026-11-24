@@ -1,2 +1,17 @@
 __pycache__/
 *.pyc
+
+# Python development
+.venv/
+.ruff_cache/
+.pytest_cache/
+.basedpyright/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Build and local test artifacts
+build/
+dist/
+tests/output/
+node_modules/

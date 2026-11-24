@@ -1,0 +1,56 @@
+[project]
+name = "vencoverlay"
+version = "0.1.0.dev0"
+description = "A transparent Discord voice and webcam overlay for games."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pycairo; sys_platform == 'linux'",
+    "PyGObject; sys_platform == 'linux'",
+]
+
+[project.urls]
+Repository = "https://github.com/caminashell/vencoverlay"
+Issues = "https://github.com/caminashell/vencoverlay/issues"
+
+[dependency-groups]
+dev = [
+    "basedpyright",
+    "pytest",
+    "pytest-cov",
+    "ruff",
+]
+build = ["nuitka"]
+
+[tool.uv]
+# The original application is not yet an installable Python package.
+package = false
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = ["build", "dist", "vencord-dist", "tests/output"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "BLE", "RUF", "ANN"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.basedpyright]
+include = ["overlay", "tests"]
+exclude = ["tests/output"]
+pythonVersion = "3.13"
+pythonPlatform = "Linux"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-config --strict-markers"
+markers = [
+    "integration: tests involving multiple components",
+    "graphical: tests requiring a graphical desktop (opt-in)",
+]
