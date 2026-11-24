@@ -250,7 +250,7 @@ wheels = [
 [[package]]
 name = "vencoverlay"
 version = "0.1.0.dev0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "pycairo", marker = "sys_platform == 'linux'" },
     { name = "pygobject", marker = "sys_platform == 'linux'" },
