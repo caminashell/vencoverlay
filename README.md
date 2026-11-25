@@ -1,145 +1,138 @@
-# Vesktop Overlay
+# VencOverlay
 
-An in-game overlay for **Vesktop** voice calls on Linux. It shows who's in your call, who's talking, who's muted, and everyone's **webcams**, on top of your games, the way Discord's Windows overlay does.
+A transparent Discord voice and webcam overlay for games, using Vencord to
+receive call information and a native GTK3/Cairo application to draw the overlay.
 
-![preview](preview.png)
+VencOverlay builds on [Vesktop Overlay](https://github.com/Akii-G/vesktop-overlay),
+originally created by [Akii-G](https://github.com/Akii-G). Full credit goes to
+Akii-G for the original overlay and its foundation, which made this project
+possible.
 
-## Features
+## Development status
 
-- **Two looks:** Discord (like the Windows overlay, default) and Mac-style frosted cards
-- Green ring on whoever is talking
-- Mute, deafen, camera and LIVE indicators
-- **Webcams**: yours and your friends', as tiles under the list
-- "Joined / left" popups
-- Click-through, so it never blocks your mouse
-- Settings inside Vesktop: position (6 spots, including left/right middle), size, opacity, speaking color, names always / while speaking / never, avatar size, webcam size and FPS
-- Show/hide with a keyboard shortcut
-- Works on GNOME (X11 and Wayland) and COSMIC; other Wayland desktops get a true overlay layer
+VencOverlay is under development (`0.1.0.dev0`). The refactored Linux application
+and standalone executable have passed offline graphical testing on Fedora
+Workstation with GNOME Wayland, including fullscreen EVE Online. Live integration
+with the refactored Vencord plugin and official Discord Flatpak installation are
+still pending. Other desktop environments and operating systems have not yet
+been validated with the refactored runtime.
 
-## How it works
+The original Python overlay and inherited installation scripts have been removed
+from the working tree; their source remains available in Git history. The
+original bridge plugin and bundled Vencord distribution are retained for the
+upcoming plugin integration milestone. End-user installation and uninstallation
+are not yet supported by the refactored project.
 
-```
-Vesktop ── OverlayBridge plugin ──(127.0.0.1)──▶ Vesktop Overlay app ──▶ on top of your game
-```
+## Application features
 
-1. **OverlayBridge** is a Vencord plugin running inside Vesktop. It reads your current call and sends it to the overlay app. Nothing leaves your computer.
-2. **Vesktop Overlay** is a small Python/GTK app that draws the transparent overlay window.
+- Discord and Mac-style voice overlays with participant avatars and names.
+- Speaking animations, mute/deafen, camera and streaming indicators.
+- Webcam tiles and join/leave notifications.
+- Configurable placement, scale, opacity and visual preferences through the bridge.
+- Transparent, click-through, non-focusable windows; hidden when inactive.
+- Offline animated demonstration without Discord or a listening socket.
+- Linux X11/XWayland and GTK Layer Shell backend selection. GNOME Wayland uses
+  XWayland; Layer Shell requires a compatible compositor and native library.
 
-`vencord-dist/` contains a ready-made Vencord build that includes the plugin, so you don't need Node.js to install.
+Live call features require a compatible, enabled Vencord bridge. The application
+listens on IPv4 loopback (default port 6889) for bridge messages and may download
+participant avatars over HTTP(S) during normal operation. Demo mode uses generated
+images and an isolated temporary avatar cache.
 
-## Requirements
+## Linux development
 
-- Linux with **Vesktop** (the `.deb` or the Flatpak)
-- Python 3 with GTK 3, which the installer adds on Ubuntu, Pop!_OS, Mint and other Debian-based systems
-- A desktop with a compositor (GNOME, COSMIC, KDE, etc.)
+Fedora Workstation is the primary validation environment. Run these commands
+from the repository root, with the project's virtual environment deactivated:
 
-## Install
-
-1. **Quit Vesktop completely** (right-click its tray icon → Quit).
-2. Download and install:
-   ```
-   git clone https://github.com/Akii-G/vesktop-overlay.git
-   cd vesktop-overlay
-   ./install.sh
-   ```
-   No git? Click **Code → Download ZIP** on this page, extract it, and run `./install.sh` inside the folder.
-3. Open Vesktop → **Settings → Plugins**, search for **OverlayBridge** and turn it on.
-4. Join a voice channel. The overlay appears.
-
-The installer:
-- installs `python3-gi`, `python3-gi-cairo` and `gir1.2-gtk-3.0` (it asks for your password),
-- installs the overlay app to `~/.local/share/vesktop-overlay` and makes it start at login,
-- adds **Vesktop Overlay** and **Vesktop Overlay (preview)** to your app list,
-- points Vesktop to the bundled Vencord build (it changes `vencordDir` in Vesktop's `state.json`).
-
-## Settings
-
-In Vesktop: **Settings → Plugins → OverlayBridge → gear icon**.
-
-| Setting | What it does |
-|---|---|
-| Overlay look | Discord or Mac-style cards |
-| Show names | Always, only while speaking, or never |
-| Avatar size | Large or small |
-| Position | Top/bottom/middle, left or right |
-| Overlay size / Card opacity | Scale and transparency |
-| Speaking glow color | Hex color, e.g. `#23a55a` (Discord green) |
-| Only show people while they talk | Hides silent people (anyone with a cam stays visible) |
-| Show webcams / Show your own webcam | Turn the cam tiles on or off |
-| Webcam FPS / tile width | Lower values use less CPU |
-| Join/leave popups | The small notifications |
-
-App-side settings (monitor, port, margin, font) are in `~/.config/vesktop-overlay/config.json`:
-
-```json
-{ "port": 6889, "monitor": 0, "margin": 24, "font": "Inter" }
+```sh
+./setup.sh
+./validate.sh
+./validate.sh --coverage
 ```
 
-`monitor` is 0 for your first screen and 1 for the second. Restart the overlay after editing.
+The setup script checks the required native libraries and prepares the locked
+Python development/build environment. Validation does not install dependencies.
+Frontend validation is not implemented yet. Use `./validate.sh --graphical --coverage` to include the native
+window test on a suitable desktop. Stop other overlay instances before assessing
+native window behaviour.
 
-## Tips
+### Offline demonstration
 
-- **Webcams** only show while the call view is open somewhere in Vesktop (another workspace is fine). Discord stops receiving a camera when nothing displays it, so the tile shows the avatar instead.
-- **Fullscreen games:** if the overlay disappears in exclusive fullscreen, switch the game to **borderless fullscreen**. It looks the same and the overlay always works there.
-- **Show/hide shortcut:** on GNOME, go to Settings → Keyboard → Custom shortcuts, and use the command:
-  ```
-  pkill -USR1 -f vesktop-overlay.py
-  ```
-- **Preview the look** without a call: open **Vesktop Overlay (preview)** from your apps, or run `vesktop-overlay --demo`.
-
-## Troubleshooting
-
-**Nothing shows up**
-- Make sure the overlay is running: `pgrep -f vesktop-overlay.py`. If it isn't, start it with `vesktop-overlay`.
-- Make sure OverlayBridge is enabled in Vesktop and you're in a voice channel.
-- If OverlayBridge isn't in the plugin list, Vesktop isn't using the bundled Vencord. Quit Vesktop and run `./install.sh` again.
-
-**A webcam shows the avatar instead of video**
-1. Open the call view in Vesktop.
-2. If it still doesn't work, press **Ctrl+Shift+I** in Vesktop, open **Console**, run `OverlayBridgeDebug()`, and open an issue with the result.
-
-**The overlay is black instead of transparent**
-- Your desktop isn't compositing. Use GNOME, KDE or COSMIC with effects on.
-
-**Port already in use**
-- Change `port` in `config.json` and the **port** plugin setting to the same new number.
-
-## Updating
-
-```
-cd vesktop-overlay
-git pull
-./install.sh
+```sh
+uv run --locked --no-sync --offline vencoverlay --demo
 ```
 
-The bundled Vencord doesn't update itself. To build a fresh Vencord with the plugin (needs Node.js 22+ and pnpm):
+The demo alternates between active and inactive periods and both rendering
+styles. Press Ctrl+C to stop it. On Linux, send `SIGUSR1` to the application PID
+reported at startup to toggle visibility.
 
-```
-git clone https://github.com/Vendicated/Vencord && cd Vencord
-mkdir -p src/userplugins && cp -r ../vesktop-overlay/plugin/overlayBridge src/userplugins/
-pnpm install && pnpm build
-cp dist/vencordDesktop* ~/.local/share/vesktop-overlay/vencord/
-```
+### Standalone executable
 
-For Flatpak Vesktop, copy to `~/.var/app/dev.vencord.Vesktop/config/vesktop/vencord-overlay/` instead.
-
-## Uninstall
-
-```
-./uninstall.sh
+```sh
+./build.sh
+./dist/vencoverlay --version
+./dist/vencoverlay --demo
 ```
 
-This removes the overlay and returns Vesktop to its normal, self-updating Vencord.
+The build publishes a verified Nuitka onefile executable to `dist/vencoverlay`.
+It is dynamically linked and still requires compatible native system libraries.
+The build currently uses a version-specific, isolated Nuitka 4.3.5 workaround
+for GTK3 typelib discovery. Review this workaround before upgrading Nuitka.
+The remaining `gi.repository` compiler warning is not suppressed; the compiled
+GNOME Wayland demo has been tested successfully despite it.
+
+Do not start normal mode alongside another overlay listening on port 6889.
+The refactored bridge and end-user installer are not yet ready for use.
+
+## Local configuration
+
+Configuration is optional. Missing settings use defaults. On Linux, the default
+location is `~/.config/vencoverlay/config.toml` (or the corresponding
+`XDG_CONFIG_HOME` directory).
+
+```toml
+port = 6889
+monitor = 0
+margin = 24
+font = "Inter"
+log_level = "INFO"
+log_to_file = false
+```
+
+`monitor` is a zero-based monitor index. The application validates TOML values
+and reports invalid configuration rather than silently replacing it. The default
+avatar cache is `~/.cache/vencoverlay/avatars`; optional rotating logs are stored
+in `~/.local/state/vencoverlay/vencoverlay.log`. XDG directory overrides are
+respected. Demo mode disables persistent file logging.
+
+The optional `VENCOVERLAY_BACKEND` environment variable accepts `auto`, `x11`
+or `layershell`. The default is `auto`.
 
 ## Project layout
 
-```
-plugin/overlayBridge/   Vencord plugin (index.ts = renderer, native.ts = local connection)
-overlay/                The overlay app (Python + GTK 3 + Cairo)
-vencord-dist/           Prebuilt Vencord with the plugin included
-install.sh / uninstall.sh
-```
+| Path | Purpose |
+|---|---|
+| `src/vencoverlay/` | Refactored application |
+| `tests/` | Foundation, unit and opt-in graphical tests |
+| `scripts/` | Shared development prerequisite checks |
+| `setup.sh`, `validate.sh`, `build.sh` | Development and build tooling |
+| `version.sh`, `stats.sh`, `snapshot.sh` | Version management, statistics and source snapshots |
+| `plugin/overlayBridge/` | Retained original Vencord bridge |
+| `vencord-dist/` | Retained original bundled Vencord build |
 
-## License
+## License and attribution
 
-GPL-3.0, like Vencord. `vencord-dist/` is a build of [Vencord](https://github.com/Vendicated/Vencord) with the OverlayBridge plugin added. Not affiliated with Discord or Vencord.
+VencOverlay is a fork and refactoring of the original
+[Vesktop Overlay](https://github.com/Akii-G/vesktop-overlay) project by Akii-G.
+The original design, rendering implementation and OverlayBridge plugin form the
+foundation of this project. The upstream OverlayBridge source credits
+`akiloyutu` in its author metadata.
+
+VencOverlay retains the original GNU General Public License v3. See
+[LICENSE](LICENSE). The original plugin source carries the
+`GPL-3.0-or-later` SPDX identifier. Existing upstream notices and attribution
+are preserved.
+The retained `vencord-dist/` contains a build of
+[Vencord](https://github.com/Vendicated/Vencord) with the original OverlayBridge
+plugin added. Its existing license and legal notices are preserved.
+VencOverlay is not affiliated with Discord or Vencord.

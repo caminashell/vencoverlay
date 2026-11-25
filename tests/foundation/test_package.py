@@ -9,6 +9,7 @@ from typing import cast
 
 import pytest
 
+from vencoverlay import cli
 from vencoverlay.cli import main
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -50,9 +51,10 @@ def test_installed_metadata() -> None:
     )
 
 
-def test_entry_point_reports_unavailable_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_entry_point_dispatches_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "argv", ["vencoverlay"])
-    assert main() == 1
+    monkeypatch.setattr(cli, "run", lambda: 0)
+    assert main() == 0
 
 
 def test_version_reporting(

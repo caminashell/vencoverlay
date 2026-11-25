@@ -64,7 +64,7 @@ def is_distribution_source(rel: str) -> bool:
     p = Path(rel)
     if generated(rel) or is_test(rel) or p.suffix.lower() not in SOURCE_SUFFIXES:
         return False
-    return (rel.startswith("src/vencoverlay/") or rel.startswith("overlay/") or rel.startswith("plugin/") or rel.startswith("frontend/src/")
+    return (rel.startswith("src/vencoverlay/") or rel.startswith("plugin/") or rel.startswith("frontend/src/")
             or rel.startswith("packaging/") or rel.startswith("frontend/scripts/"))
 
 
@@ -82,7 +82,11 @@ skipped_binary = 0
 for base, folder_names, names in os.walk(ROOT, followlinks=False):
     base_path = Path(base)
     relative_base = base_path.relative_to(ROOT)
-    folder_names[:] = sorted(d for d in folder_names if d not in SKIP_DIRS and not (base_path / d).is_symlink())
+    folder_names[:] = sorted(
+        d for d in folder_names
+        if d not in SKIP_DIRS and not d.endswith(".egg-info")
+        and not (base_path / d).is_symlink()
+    )
     for d in folder_names:
         dirs.add((relative_base / d).as_posix())
     for name in sorted(names):
@@ -130,7 +134,7 @@ if not HEATMAP_ONLY:
     print("Working tree: " + ("unavailable" if status is None else "modified" if status else "clean"))
 if not HEATMAP_ONLY:
     print("Scope: current working tree; UTF-8 text files only; character counts are Unicode code points")
-    print("Excluded: .git, caches, environments, node_modules, build/dist, bundled Vencord distribution, WASD reference scripts and binary files")
+    print("Excluded: .git, caches, environments, generated .egg-info, node_modules, build/dist, bundled Vencord distribution, WASD reference scripts and binary files")
     section("1. SHAREABLE SUMMARY")
     print(f"Handwritten distribution source: {fmt(totals(production)[0])} files, {fmt(totals(production)[1])} lines, {fmt(totals(production)[2])} characters")
     print(f"Tests:                           {fmt(totals(tests)[0])} files, {fmt(totals(tests)[1])} lines")
@@ -139,8 +143,7 @@ if not HEATMAP_ONLY:
     section("2. WORKING TREE BREAKDOWN")
     print(f"{'Category':<30} {'Files':>8} {'Lines':>12} {'Characters':>14} {'UTF-8 bytes':>14}")
     show_totals("Distribution source", production)
-    show_totals("  Original Python overlay", [f for f in production if f[0].startswith("overlay/")])
-    show_totals("  Refactored Python", [f for f in production if f[0].startswith("src/vencoverlay/") and f[0].endswith(".py")])
+    show_totals("  Python application", [f for f in production if f[0].startswith("src/vencoverlay/") and f[0].endswith(".py")])
     show_totals("  Vencord plugin", [f for f in production if f[0].startswith("plugin/")])
     show_totals("Test source", tests)
     show_totals("Other handwritten source", [f for f in source_all if f not in production and f not in tests])

@@ -5,23 +5,19 @@ cd "$PROJECT_ROOT"
 source scripts/prerequisites.sh
 usage() {
     cat <<'HELP'
-Usage: ./validate.sh [--coverage] [--legacy] [--graphical]
+Usage: ./validate.sh [--coverage] [--graphical]
   Default      Validate maintained Python code and shell scripts.
   --coverage   Report Python test coverage (no minimum yet).
-  --legacy     Also enforce lint, formatting and types on original overlay.
   --graphical  Permit graphical tests (requires a suitable desktop).
   --help       Show help.
-The original overlay is excluded by default until migrated. No frontend
-validation is implemented yet. No dependencies are installed.
+No frontend validation is implemented yet. No dependencies are installed.
 HELP
 }
 coverage=false
-legacy=false
 graphical=false
 for arg in "$@"; do
     case "$arg" in
         --coverage) coverage=true;;
-        --legacy) legacy=true;;
         --graphical) graphical=true;;
         -h|--help) usage; exit 0;;
         *) die "Unknown argument: $arg (use --help)";;
@@ -62,11 +58,6 @@ check_shell() {
 }
 paths=(tests)
 [[ ! -d src ]] || paths+=(src)
-if [[ $legacy == true ]]; then
-    [[ ! -d overlay ]] || paths+=(overlay)
-elif [[ -d overlay ]]; then
-    warn 'Original overlay excluded from quality gates; use --legacy to enforce its checks.'
-fi
 runner=(uv run --locked --no-sync --offline)
 pytest_args=(--tb=short -q)
 if [[ $graphical == true ]]; then pytest_args+=(--graphical); fi
@@ -83,7 +74,6 @@ run_check 'Strict Basedpyright' "${runner[@]}" basedpyright "${paths[@]}"
 run_check 'Pytest' "${runner[@]}" pytest "${pytest_args[@]}"
 log 'Validation summary'
 printf 'Passed: %s\nFailed: %s\n' "$passed" "$failed"
-if [[ $legacy == false && -d overlay ]]; then printf 'Legacy overlay: NOT VALIDATED (known inherited diagnostics)\n'; fi
 printf 'Frontend: NOT VALIDATED (tooling pending)\n'
 if ((failed)); then exit 1; fi
 printf 'All selected validation checks passed.\n'

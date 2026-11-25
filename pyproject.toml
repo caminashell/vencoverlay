@@ -48,7 +48,7 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.basedpyright]
-include = ["src", "overlay", "tests"]
+include = ["src", "tests"]
 exclude = ["tests/output"]
 pythonVersion = "3.13"
 pythonPlatform = "Linux"

@@ -16,5 +16,8 @@ def main() -> int:
     parser.add_argument(
         "--version", action="version", version=f"VencOverlay {version('vencoverlay')}"
     )
-    parser.parse_args()
-    return run()
+    parser.add_argument(
+        "--demo", action="store_true", help="Run an offline animated overlay demonstration"
+    )
+    args = parser.parse_args()
+    return run(demo=True) if args.demo else run()
