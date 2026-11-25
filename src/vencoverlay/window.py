@@ -179,6 +179,7 @@ class GtkWindowSurface:
             raise RuntimeError("No graphical display available")
         self._display = display
         self._monitor_index = monitor_index
+        self._avoid_monitor_sized_window = selection.avoid_monitor_sized_window
         self._layer: _LayerShell | None = None
         if selection.backend is Backend.LAYER_SHELL:
             gi.require_version("GtkLayerShell", "0.1")
@@ -242,8 +243,14 @@ class GtkWindowSurface:
             self.window.move(geo.x, geo.y)
         else:
             self._layer.set_monitor(self.window, monitor)
-        self.window.set_default_size(geo.width, geo.height)
-        self.window.resize(geo.width, geo.height)
+        width, height = geo.width, geo.height
+        if self._layer is None and self._avoid_monitor_sized_window:
+            # Mutter can classify an exact monitor-sized override-redirect
+            # window as fullscreen, hiding GNOME Shell chrome. Keep the
+            # window origin and leave two logical pixels at the right/bottom.
+            width, height = max(1, width - 2), max(1, height - 2)
+        self.window.set_default_size(width, height)
+        self.window.resize(width, height)
         self._click_through()
         self.window.queue_draw()
 

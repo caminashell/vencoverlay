@@ -16,6 +16,7 @@ def test_gnome_wayland(desktop: str) -> None:
         probe=unexpected_probe,
     )
     assert result.backend is Backend.X11
+    assert result.avoid_monitor_sized_window
 
 
 @pytest.mark.parametrize("desktop", ["KDE", "COSMIC", "sway"])
@@ -27,6 +28,7 @@ def test_other_wayland(desktop: str, available: bool) -> None:
         probe=lambda: available,
     )
     assert result.backend is (Backend.LAYER_SHELL if available else Backend.X11)
+    assert not result.avoid_monitor_sized_window
 
 
 def test_native_x11() -> None:
@@ -36,6 +38,7 @@ def test_native_x11() -> None:
         probe=lambda: True,
     )
     assert result.backend is Backend.X11
+    assert not result.avoid_monitor_sized_window
 
 
 def test_wayland_inference() -> None:
@@ -43,6 +46,7 @@ def test_wayland_inference() -> None:
         environment={"WAYLAND_DISPLAY": "wayland-0"}, platform="linux", probe=lambda: True
     )
     assert result.backend is Backend.LAYER_SHELL
+    assert not result.avoid_monitor_sized_window
 
 
 def test_x11_override() -> None:
@@ -54,6 +58,20 @@ def test_x11_override() -> None:
     assert result.backend is Backend.X11
 
 
+@pytest.mark.parametrize("session", ["wayland", "x11"])
+def test_gnome_x11_override(session: str) -> None:
+    result = select_backend(
+        environment={
+            "XDG_SESSION_TYPE": session,
+            "XDG_CURRENT_DESKTOP": "GNOME",
+            "VENCOVERLAY_BACKEND": "x11",
+        },
+        platform="linux",
+    )
+    assert result.backend is Backend.X11
+    assert result.avoid_monitor_sized_window is (session == "wayland")
+
+
 def test_layer_shell_override() -> None:
     result = select_backend(
         environment={"XDG_SESSION_TYPE": "wayland", "VENCOVERLAY_BACKEND": "layershell"},
@@ -61,6 +79,7 @@ def test_layer_shell_override() -> None:
         probe=lambda: True,
     )
     assert result.backend is Backend.LAYER_SHELL
+    assert not result.avoid_monitor_sized_window
 
 
 @pytest.mark.parametrize(

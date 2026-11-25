@@ -22,6 +22,7 @@ class BackendError(RuntimeError):
 class BackendSelection:
     backend: Backend
     reason: str
+    avoid_monitor_sized_window: bool = False
 
     @property
     def gdk_backend(self) -> str:
@@ -60,7 +61,9 @@ def select_backend(
     wayland = session == "wayland" or (not session and bool(environment.get("WAYLAND_DISPLAY")))
     gnome = "GNOME" in environment.get("XDG_CURRENT_DESKTOP", "").upper()
     if override == "x11":
-        return BackendSelection(Backend.X11, "Explicit X11 override")
+        return BackendSelection(
+            Backend.X11, "Explicit X11 override", avoid_monitor_sized_window=wayland and gnome
+        )
     if override == "layershell":
         if not wayland or gnome:
             raise BackendError("Layer Shell requires a supported non-GNOME Wayland session")
@@ -70,7 +73,9 @@ def select_backend(
     if not wayland:
         return BackendSelection(Backend.X11, "X11 or unspecified session")
     if gnome:
-        return BackendSelection(Backend.X11, "GNOME Wayland requires XWayland")
+        return BackendSelection(
+            Backend.X11, "GNOME Wayland requires XWayland", avoid_monitor_sized_window=True
+        )
     if probe():
         return BackendSelection(Backend.LAYER_SHELL, "GTK Layer Shell typelib available")
     return BackendSelection(Backend.X11, "GTK Layer Shell unavailable; XWayland fallback")
