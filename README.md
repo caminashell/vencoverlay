@@ -10,18 +10,19 @@ possible.
 
 ## Development status
 
-VencOverlay is under development (`0.1.0.dev0`). The refactored Linux application
-and standalone executable have passed offline graphical testing on Fedora
-Workstation with GNOME Wayland, including fullscreen EVE Online. Live integration
-with the refactored Vencord plugin and official Discord Flatpak installation are
-still pending. Other desktop environments and operating systems have not yet
-been validated with the refactored runtime.
+VencOverlay is under development (`0.1.0.dev0`). The standalone Linux application
+and the refactored Vencord plugin have passed live voice-overlay testing on
+Fedora Workstation with GNOME Wayland (XWayland), using the official Discord
+Flatpak with an existing conventional Vencord loader. Installation, upgrades,
+removal and restoration of that loader's original runtime have been exercised.
+Voice membership, speaking, mute/deafen, avatars, notifications, live settings,
+fullscreen interaction and connection recovery have been verified.
 
-The original Python overlay and inherited installation scripts have been removed
-from the working tree; their source remains available in Git history. The
-original bridge plugin and bundled Vencord distribution are retained for the
-upcoming plugin integration milestone. End-user installation and uninstallation
-are not yet supported by the refactored project.
+Live webcam testing, other installation layouts, desktop environments and
+operating systems remain unverified. Screen/window-share video capture is not
+implemented. Automatic repatching after Flatpak updates is not implemented.
+The original implementation and bundled distribution remain available in Git
+history; the maintained plugin is built against pinned Vencord source.
 
 ## Application features
 
@@ -52,9 +53,11 @@ from the repository root, with the project's virtual environment deactivated:
 
 The setup script checks the required native libraries and prepares the locked
 Python development/build environment. Validation does not install dependencies.
-Frontend validation is not implemented yet. Use `./validate.sh --graphical --coverage` to include the native
-window test on a suitable desktop. Stop other overlay instances before assessing
-native window behaviour.
+Use `./validate.sh --graphical --coverage` to include the native window test on a
+suitable desktop. Stop other overlay instances before assessing native window
+behaviour. Use `./setup.sh --frontend` to prepare the pinned Vencord toolchain
+and `./validate.sh --frontend --coverage` to include frontend validation.
+See [frontend development](docs/frontend-development.md) for details.
 
 ### Offline demonstration
 
@@ -82,7 +85,34 @@ The remaining `gi.repository` compiler warning is not suppressed; the compiled
 GNOME Wayland demo has been tested successfully despite it.
 
 Do not start normal mode alongside another overlay listening on port 6889.
-The refactored bridge and end-user installer are not yet ready for use.
+
+### Discord Flatpak integration
+
+Build and verify the frontend separately from the standalone executable:
+
+```sh
+./setup.sh --frontend
+./validate.sh --frontend --coverage
+./build.sh --frontend
+./build.sh --verify-frontend
+```
+
+The installer consumes `dist/vencoverlay` and `dist/vencoverlay-vencord.zip`.
+It does not compile dependencies or require the development toolchain. Review
+[Flatpak installation](docs/flatpak-installation.md) before installing. For an
+existing conventional Vencord loader, assess adoption with:
+
+```sh
+./install.sh --check --adopt-existing
+```
+
+If preflight confirms a supported layout, fully quit Discord and any running
+overlay, then use `./install.sh --adopt-existing`. Start Discord from its desktop
+launcher and enable VencOverlay in Vencord's plugin settings. Use the same
+installation mode for upgrades. With Discord and the overlay stopped,
+`./uninstall.sh` removes managed integration and restores the original adopted
+runtime while retaining settings. Do not use `sudo` for these commands.
+Other installation layouts have separate requirements documented in the guide.
 
 ## Local configuration
 
@@ -114,11 +144,29 @@ or `layershell`. The default is `auto`.
 |---|---|
 | `src/vencoverlay/` | Refactored application |
 | `tests/` | Foundation, unit and opt-in graphical tests |
-| `scripts/` | Shared development prerequisite checks |
+| `scripts/` | Development, frontend build and installation helpers |
 | `setup.sh`, `validate.sh`, `build.sh` | Development and build tooling |
+| `install.sh`, `uninstall.sh` | Managed Discord Flatpak integration |
 | `version.sh`, `stats.sh`, `snapshot.sh` | Version management, statistics and source snapshots |
-| `plugin/overlayBridge/` | Retained original Vencord bridge |
-| `vencord-dist/` | Retained original bundled Vencord build |
+| `plugin/vencoverlay/` | Maintained VencOverlay plugin source for Vencord |
+| `docs/` | Frontend development and Flatpak installation guides |
+| `build/`, `dist/` | Generated, Git-ignored build workspace and artifacts |
+
+## Vencord plugin development
+
+The plugin is named `VencOverlay`. Its renderer and native helper remain in
+separate TypeScript entry points. Vencord’s settings migration API moves saved
+preferences (including the enabled state) from the original `OverlayBridge`
+name when no `VencOverlay` settings entry already exists. Existing VencOverlay
+settings take precedence. The migration has not yet been tested in a live client.
+The developer diagnostic function is now `VencOverlayDebug()` in Discord DevTools.
+
+The frontend build uses pinned Vencord v1.15.19 and produces minified Discord
+Desktop and Vesktop bundles. Only the Discord Flatpak adoption path has been
+validated in a live client. The verified release archive includes the pinned
+upstream and custom plugin source, debug maps, licence notices and checksums.
+The custom distribution disables Vencord's automatic updater to protect the
+custom plugin; upgrades must use the VencOverlay build/install workflow.
 
 ## License and attribution
 
@@ -132,7 +180,8 @@ VencOverlay retains the original GNU General Public License v3. See
 [LICENSE](LICENSE). The original plugin source carries the
 `GPL-3.0-or-later` SPDX identifier. Existing upstream notices and attribution
 are preserved.
-The retained `vencord-dist/` contains a build of
-[Vencord](https://github.com/Vendicated/Vencord) with the original OverlayBridge
-plugin added. Its existing license and legal notices are preserved.
+The generated frontend distribution includes
+[Vencord](https://github.com/Vendicated/Vencord), its licence and linked legal
+notices, project attribution and corresponding source. The inherited bundle and
+its original notices remain in Git history.
 VencOverlay is not affiliated with Discord or Vencord.

@@ -5,14 +5,14 @@ source scripts/prerequisites.sh
 mode=${1:-install}
 [[ $# -le 1 ]] || die 'Expected at most one argument'
 case "$mode" in
-    -h|--help) printf '%s\n' 'Usage: ./setup.sh [--check | --report]' 'Default: offer missing Fedora RPMs, then synchronise Python dependencies.' '--check: check readiness without installation.' '--report: detailed read-only diagnostics.'; exit 0;;
-    install|--check|--report) ;;
+    -h|--help) printf '%s\n' 'Usage: ./setup.sh [--check | --report | --frontend]' 'Default: offer missing Fedora RPMs, then synchronise Python dependencies.' '--check: check readiness without installation.' '--report: detailed read-only diagnostics.' '--frontend: synchronise Python and set up pinned Vencord dependencies (network access).'; exit 0;;
+    install|--check|--report|--frontend) ;;
     *) die "Unknown option: $mode";;
 esac
 [[ -f pyproject.toml ]] || die 'Missing pyproject.toml; apply A1.1 first.'
 [[ -z ${VIRTUAL_ENV:-} ]] || die 'Deactivate the virtual environment first.'
 export UV_PROJECT_ENVIRONMENT="$PWD/.venv"
-if [[ "$mode" != install ]]; then
+if [[ "$mode" == --check || "$mode" == --report ]]; then
     export UV_OFFLINE=1 UV_PYTHON_DOWNLOADS=never
 fi
 if command -v uv >/dev/null; then check_uv_location || die 'Use an independent uv installation.'; fi
@@ -29,6 +29,7 @@ if [[ "$mode" == --report ]]; then
             printf '%s: %s (version not executed in read-only report)\n' "$tool" "$(command -v "$tool")"
         else warn "$tool unavailable"; fi
     done
+    bash scripts/frontend.sh --report || warn 'Frontend environment not ready.'
     if command -v uv >/dev/null; then uv python list --only-installed --offline || true; fi
     if command -v git >/dev/null; then git status --short; git branch --show-current; git log -1 --oneline; fi
     if command -v pkg-config >/dev/null; then
@@ -37,7 +38,7 @@ if [[ "$mode" == --report ]]; then
         done
     fi
 fi
-if [[ "$mode" != install ]]; then
+if [[ "$mode" == --check || "$mode" == --report ]]; then
     failed=0
     check_system || failed=1
     if command -v uv >/dev/null; then check_environment || failed=1; else failed=1; fi
@@ -71,4 +72,7 @@ if [[ ! -f uv.lock ]]; then
 fi
 uv sync --locked --group dev --group build
 check_environment || die 'Python environment verification failed.'
+if [[ "$mode" == --frontend ]]; then
+    bash scripts/frontend.sh --setup
+fi
 log 'Development environment ready'

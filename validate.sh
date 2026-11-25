@@ -5,20 +5,23 @@ cd "$PROJECT_ROOT"
 source scripts/prerequisites.sh
 usage() {
     cat <<'HELP'
-Usage: ./validate.sh [--coverage] [--graphical]
+Usage: ./validate.sh [--coverage] [--graphical] [--frontend]
   Default      Validate maintained Python code and shell scripts.
   --coverage   Report Python test coverage (no minimum yet).
   --graphical  Permit graphical tests (requires a suitable desktop).
   --help       Show help.
-No frontend validation is implemented yet. No dependencies are installed.
+  --frontend   Also validate plugin against the pinned Vencord checkout.
+No dependencies are installed.
 HELP
 }
 coverage=false
 graphical=false
+frontend=false
 for arg in "$@"; do
     case "$arg" in
         --coverage) coverage=true;;
         --graphical) graphical=true;;
+        --frontend) frontend=true;;
         -h|--help) usage; exit 0;;
         *) die "Unknown argument: $arg (use --help)";;
     esac
@@ -51,16 +54,17 @@ check_shell() {
     local file result=0
     for file in ./*.sh scripts/*.sh; do
         [[ -f "$file" ]] || continue
-        [[ "$file" != ./wasd-*.sh ]] || continue
         bash -n "$file" || result=1
     done
     return "$result"
 }
 paths=(tests)
 [[ ! -d src ]] || paths+=(src)
+[[ ! -d scripts ]] || paths+=(scripts)
 runner=(uv run --locked --no-sync --offline)
 pytest_args=(--tb=short -q)
 if [[ $graphical == true ]]; then pytest_args+=(--graphical); fi
+if [[ $frontend == true ]]; then pytest_args+=(--frontend); fi
 if [[ $coverage == true ]]; then
     if [[ -d src ]]; then pytest_args+=(--cov=src --cov-report=term-missing); else
         pytest_args+=(--cov=tests --cov-report=term-missing)
@@ -72,8 +76,18 @@ run_check 'Ruff linting' "${runner[@]}" ruff check "${paths[@]}"
 run_check 'Ruff formatting' "${runner[@]}" ruff format --check "${paths[@]}"
 run_check 'Strict Basedpyright' "${runner[@]}" basedpyright "${paths[@]}"
 run_check 'Pytest' "${runner[@]}" pytest "${pytest_args[@]}"
+if [[ $frontend == true ]]; then
+    if bash scripts/frontend.sh --check; then
+        run_check 'Vencord TypeScript' bash scripts/frontend.sh --typecheck
+        run_check 'Vencord Oxlint' bash scripts/frontend.sh --lint
+    else
+        run_check 'Frontend prerequisites' false
+    fi
+fi
 log 'Validation summary'
 printf 'Passed: %s\nFailed: %s\n' "$passed" "$failed"
-printf 'Frontend: NOT VALIDATED (tooling pending)\n'
+if [[ $frontend == false ]]; then
+    printf 'Frontend: NOT VALIDATED (use --frontend)\n'
+fi
 if ((failed)); then exit 1; fi
 printf 'All selected validation checks passed.\n'

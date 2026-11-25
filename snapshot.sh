@@ -19,7 +19,7 @@ from pathlib import Path
 
 root = Path.cwd()
 # Explicit project areas and root files; do not archive arbitrary local files.
-areas = {'src', 'plugin', 'scripts', 'tests', 'vencord-dist', 'docs'}
+areas = {'src', 'plugin', 'scripts', 'tests', 'docs'}
 root_files = {'pyproject.toml', 'uv.lock', 'LICENSE', 'README.md', '.gitignore',
               'preview.png', 'setup.sh', 'validate.sh', 'stats.sh', 'snapshot.sh',
               'version.sh', 'install.sh', 'uninstall.sh', 'build.sh'}

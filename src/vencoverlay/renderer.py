@@ -507,15 +507,12 @@ class OverlayRenderer:
                 ix -= bw + 5 * sc
 
             name_x = lx + 18 * sc + rad * 2
-            weights = self.native.pango.Weight
-            lay = self.layout_text(
-                cr, p.data.name, 13.5 * sc, weights.BOLD if p.data.speaking else weights.MEDIUM
-            )
+            # Animate name opacity rather than font weight to keep text metrics stable.
+            lay = self.layout_text(cr, p.data.name, 13.5 * sc, self.native.pango.Weight.NORMAL)
             lay.set_width(int(max(10, ix - name_x - 4 * sc) * self.native.pango.SCALE))
             _, lh = lay.get_pixel_size()
             cr.move_to(name_x, y + (rh - lh) / 2)
-            dim = 0.55 if p.data.deaf else 1
-            cr.set_source_rgba(1, 1, 1, a * dim)
+            cr.set_source_rgba(1, 1, 1, a * (0.5 + 0.5 * p.glow))
             self.native.pangocairo.show_layout(cr, lay)
             y += (rh + gap) * a
 

@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from types import SimpleNamespace
 from typing import Protocol, cast
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -192,6 +192,45 @@ def test_styles_render_typed_state(style: str) -> None:
     renderer.draw(cast(CairoContext, Mock(spec=CairoContext)), 1200, 1000)
     assert not requested
     assert "Open the call view in Discord to see this cam" not in text.drawn
+
+
+def test_mac_participant_name_weight_and_opacity_during_speech() -> None:
+    state = sample_state("mac")
+    state.preferences = replace(state.preferences, show_webcams=False)
+    native = fake_drawing(RecordingText())
+    renderer = OverlayRenderer(
+        Configuration(), state, lambda _: None, lambda _: None, native=native
+    )
+    context_mock = Mock(spec=CairoContext)
+    context = cast(CairoContext, context_mock)
+    person = state.people["a"]
+    painted = Mock()
+
+    def record_name(_cr: CairoContext, layout: RecordingLayout) -> None:
+        if layout.text == person.data.name:
+            painted(*context_mock.set_source_rgba.call_args.args)
+
+    with (
+        patch.object(renderer, "layout_text", wraps=renderer.layout_text) as layout_text,
+        patch.object(native.pangocairo, "show_layout", side_effect=record_name),
+    ):
+        for speaking, glow, alpha, deaf, expected in (
+            (False, 0.0, 1.0, False, 0.5),
+            (True, 0.5, 1.0, False, 0.75),
+            (True, 1.0, 1.0, False, 1.0),
+            (False, 0.5, 1.0, False, 0.75),
+            (False, 0.0, 1.0, False, 0.5),
+            (False, 0.0, 1.0, True, 0.5),
+            (True, 1.0, 0.5, False, 0.5),
+        ):
+            person.data = replace(person.data, speaking=speaking, deaf=deaf)
+            person.glow = glow
+            person.alpha = alpha
+            layout_text.reset_mock()
+            painted.reset_mock()
+            renderer.draw(context, 1200, 1000)
+            layout_text.assert_any_call(context, person.data.name, 13.5, native.pango.Weight.NORMAL)
+            painted.assert_called_once_with(1, 1, 1, expected)
 
 
 @pytest.mark.parametrize("names", ["always", "speaking", "never"])

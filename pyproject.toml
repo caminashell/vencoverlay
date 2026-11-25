@@ -38,7 +38,7 @@ package = true
 [tool.ruff]
 target-version = "py313"
 line-length = 100
-extend-exclude = ["build", "dist", "vencord-dist", "tests/output"]
+extend-exclude = ["build", "dist", "tests/output"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "BLE", "RUF", "ANN"]
@@ -58,6 +58,7 @@ venv = ".venv"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "--strict-config --strict-markers"
 markers = [
     "integration: tests involving multiple components",

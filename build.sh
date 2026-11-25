@@ -7,10 +7,22 @@ source scripts/prerequisites.sh
 usage() {
     cat <<'HELP'
 Usage: ./build.sh [--jobs N] [--no-compression]
+       ./build.sh --frontend
+       ./build.sh --verify-frontend
 Build and verify the Linux onefile executable at dist/vencoverlay.
-Run ./setup.sh and ./validate.sh first. No dependencies are installed.
+Build the minified Vencord distribution at dist/vencoverlay-vencord.zip with --frontend.
+Verify an existing frontend distribution with --verify-frontend.
+Run ./setup.sh and ./validate.sh first (add --frontend for the frontend). No dependencies are installed.
 HELP
 }
+if [[ ${1:-} == --frontend || ${1:-} == --verify-frontend ]]; then
+    [[ $# == 1 ]] || die 'Frontend mode does not accept native build options.'
+    if [[ $1 == --frontend ]]; then
+        exec bash scripts/frontend.sh --build
+    else
+        exec bash scripts/frontend.sh --verify
+    fi
+fi
 options=()
 while (($#)); do
     case "$1" in

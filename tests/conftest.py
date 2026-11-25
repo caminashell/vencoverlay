@@ -5,6 +5,12 @@ import pytest
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
+        "--frontend",
+        action="store_true",
+        default=False,
+        help="Allow cross-language tests using the pinned frontend toolchain.",
+    )
+    parser.addoption(
         "--graphical",
         action="store_true",
         default=False,

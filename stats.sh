@@ -25,7 +25,7 @@ if ARGS - VALID_ARGS:
 SHOW_FILES = "--files" in ARGS
 HEATMAP_ONLY = "--heatmap-only" in ARGS
 COLOR = sys.stdout.isatty() and "NO_COLOR" not in os.environ and "--no-color" not in ARGS
-SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".basedpyright", ".tox", ".nox", ".cache", "build", "dist", "coverage", "htmlcov", ".next", ".parcel-cache", "vencord-dist", "output"}
+SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".basedpyright", ".tox", ".nox", ".cache", "build", "dist", "coverage", "htmlcov", ".next", ".parcel-cache", "output"}
 SKIP_SUFFIXES = {".pyc", ".pyo", ".so", ".o", ".a", ".dll", ".dylib", ".class", ".whl", ".zip", ".gz", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico", ".pdf", ".sqlite", ".sqlite3", ".db", ".lockb"}
 SOURCE_SUFFIXES = {".py", ".js", ".jsx", ".ts", ".tsx", ".css", ".scss", ".html", ".jinja", ".jinja2", ".sh", ".bash", ".c", ".h", ".rs"}
 LANGUAGES = {".py": "Python", ".js": "JavaScript", ".jsx": "JavaScript JSX", ".ts": "TypeScript", ".tsx": "TypeScript JSX", ".css": "CSS", ".scss": "SCSS", ".html": "HTML/templates", ".jinja": "Jinja templates", ".jinja2": "Jinja templates", ".sh": "Shell", ".bash": "Shell", ".c": "C", ".h": "C headers", ".rs": "Rust"}
@@ -91,7 +91,7 @@ for base, folder_names, names in os.walk(ROOT, followlinks=False):
         dirs.add((relative_base / d).as_posix())
     for name in sorted(names):
         path = base_path / name
-        if name.startswith("wasd-") and name.endswith(".sh") or name == ".coverage":
+        if name == ".coverage":
             continue
         if path.is_symlink() or not path.is_file():
             continue
@@ -134,7 +134,7 @@ if not HEATMAP_ONLY:
     print("Working tree: " + ("unavailable" if status is None else "modified" if status else "clean"))
 if not HEATMAP_ONLY:
     print("Scope: current working tree; UTF-8 text files only; character counts are Unicode code points")
-    print("Excluded: .git, caches, environments, generated .egg-info, node_modules, build/dist, bundled Vencord distribution, WASD reference scripts and binary files")
+    print("Excluded: .git, caches, environments, generated .egg-info, node_modules, build/dist and binary files")
     section("1. SHAREABLE SUMMARY")
     print(f"Handwritten distribution source: {fmt(totals(production)[0])} files, {fmt(totals(production)[1])} lines, {fmt(totals(production)[2])} characters")
     print(f"Tests:                           {fmt(totals(tests)[0])} files, {fmt(totals(tests)[1])} lines")
