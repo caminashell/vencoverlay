@@ -187,7 +187,7 @@ def read_archive(archive: zipfile.ZipFile) -> dict[str, bytes]:
     return {info.filename: archive.read(info) for info in archive.infolist() if not info.is_dir()}
 
 
-def verify(path: Path) -> None:
+def verify(path: Path, *, quiet: bool = False) -> None:
     with zipfile.ZipFile(path) as archive:
         files = read_archive(archive)
     manifest = read_json(files.pop("manifest.json"))
@@ -227,10 +227,11 @@ def verify(path: Path) -> None:
         "Plugin source checksum mismatch",
     )
     check_payload(files, plugin, revision)
-    print(
-        f"Verified: {path} ({len(files)} files, VencOverlay {manifest['version']}, "
-        f"Vencord {manifest['vencord_version']})"
-    )
+    if not quiet:
+        print(
+            f"Verified: {path} ({len(files)} files, VencOverlay {manifest['version']}, "
+            f"Vencord {manifest['vencord_version']})"
+        )
 
 
 def package(

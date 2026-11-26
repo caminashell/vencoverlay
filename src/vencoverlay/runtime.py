@@ -20,7 +20,7 @@ from vencoverlay.image_decode import GdkPixbufDecoder, Pixbuf, avatar_decoder, w
 from vencoverlay.overlay_state import ANIMATION_INTERVAL_MS, OverlayState
 from vencoverlay.paths import ApplicationPaths
 from vencoverlay.protocol import FrameMessage, Message, StateMessage
-from vencoverlay.renderer import CairoContext, OverlayRenderer
+from vencoverlay.renderer import CairoContext, DrawingAPI, OverlayRenderer
 from vencoverlay.server import CommunicationServer
 from vencoverlay.window import GtkWindowSurface, WindowController
 
@@ -189,14 +189,8 @@ class _GLib(Protocol):
     def source_remove(self, tag: int) -> bool: ...
 
 
-def run_runtime(
-    config: Configuration,
-    paths: ApplicationPaths,
-    selection: BackendSelection,
-    *,
-    demo: bool = False,
-) -> int:
-    """Acquire resources in order and release them on every exit path."""
+def initialise_graphics(selection: BackendSelection) -> tuple[_Gtk, _GLib]:
+    """Initialise the same native graphics stack used by the overlay."""
     configure_backend(selection)
     gi = cast(_GI, importlib.import_module("gi"))
     # Pin all drawing namespaces before importing GTK: compiled GI modules
@@ -215,6 +209,27 @@ def run_runtime(
     ready, _ = gtk.init_check(None)
     if not ready:
         raise RuntimeError(f"Cannot initialise GTK using {selection.gdk_backend}")
+    return gtk, glib
+
+
+def check_runtime(selection: BackendSelection) -> None:
+    """Check native drawing, decoding and an unmapped window without persistent state."""
+    initialise_graphics(selection)
+    DrawingAPI.load()
+    GdkPixbufDecoder()
+    surface = GtkWindowSurface(selection, 0)
+    surface.destroy()
+
+
+def run_runtime(
+    config: Configuration,
+    paths: ApplicationPaths,
+    selection: BackendSelection,
+    *,
+    demo: bool = False,
+) -> int:
+    """Acquire resources in order and release them on every exit path."""
+    gtk, glib = initialise_graphics(selection)
     with ExitStack() as cleanup:
         inbox = MessageInbox()
         state = OverlayState()

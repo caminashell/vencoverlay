@@ -7,6 +7,7 @@ import pytest
 
 from vencoverlay import application, cli
 from vencoverlay.application import run
+from vencoverlay.backend import BackendSelection
 from vencoverlay.config import Configuration
 
 
@@ -91,3 +92,29 @@ def test_demo_disables_persistent_logging(monkeypatch: pytest.MonkeyPatch, tmp_p
     monkeypatch.setattr(application, "run_runtime", fake_runtime)
     assert run(demo=True) == 0
     assert not (tmp_path / "state").exists()
+
+
+def test_runtime_check_cli(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def check(selection: BackendSelection) -> None:
+        assert selection.gdk_backend == "x11"
+
+    monkeypatch.setenv("VENCOVERLAY_BACKEND", "x11")
+    monkeypatch.setattr(sys, "argv", ["vencoverlay", "--check-runtime"])
+    monkeypatch.setattr(cli, "check_runtime", check)
+    assert cli.main() == 0
+    assert capsys.readouterr().out == "VencOverlay runtime check passed\n"
+
+
+def test_runtime_check_cli_failure(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def check(_selection: BackendSelection) -> None:
+        raise RuntimeError("Cannot initialise GTK")
+
+    monkeypatch.setenv("VENCOVERLAY_BACKEND", "x11")
+    monkeypatch.setattr(sys, "argv", ["vencoverlay", "--check-runtime"])
+    monkeypatch.setattr(cli, "check_runtime", check)
+    assert cli.main() == 1
+    assert "Cannot initialise GTK" in capsys.readouterr().err

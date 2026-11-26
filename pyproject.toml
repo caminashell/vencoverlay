@@ -1,6 +1,6 @@
 [project]
 name = "vencoverlay"
-version = "0.1.0.dev0"
+version = "0.1.0.dev1"
 description = "A transparent Discord voice and webcam overlay for games."
 readme = "README.md"
 requires-python = ">=3.13"

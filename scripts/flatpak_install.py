@@ -17,10 +17,14 @@ from collections.abc import Callable, Generator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic, sleep
 from typing import Self
+from uuid import uuid4
 
+from scripts import native_artifacts
 from scripts.frontend_artifacts import (
     NOTICE_PATTERN,
+    hashes,
     object_dict,
     object_list,
     read_json,
@@ -35,6 +39,8 @@ PATCHER = "/var/data/vencoverlay/runtime/patcher.js"
 BUNDLES = {"patcher.js", "renderer.js", "renderer.css", "preload.js"}
 METADATA = {"LICENSE", "VENCOVERLAY-LICENSE", "ATTRIBUTION.txt", "package.json"}
 ROOT = Path(__file__).resolve().parents[1]
+DISCORD_EXIT_GRACE_SECONDS = 5.0
+DISCORD_EXIT_POLL_SECONDS = 0.25
 
 
 def command(*args: str) -> subprocess.CompletedProcess[str]:
@@ -129,7 +135,11 @@ def detect(scope: str | None) -> Discord:
             "Cannot determine Discord deployment commit",
         )
         found.append(Discord(candidate, location_path.resolve(strict=True), parts[2], commit))
-    require(bool(found), "Official Discord stable Flatpak not found")
+    require(
+        bool(found),
+        "Official Discord stable Flatpak not found; install Discord and Vencord first. "
+        "Vesktop installation is not supported yet.",
+    )
     require(len(found) == 1, "Both user and system Discord found; select --scope")
     discord = found[0]
     require(discord.resources.is_dir(), "Unsupported Discord resources layout")
@@ -141,6 +151,20 @@ def discord_running() -> bool:
     result = command("flatpak", "ps", "--columns=application")
     require(result.returncode == 0, "Unable to check running Flatpak applications")
     return APP in {line.strip() for line in result.stdout.splitlines()}
+
+
+def require_discord_stopped(message: str) -> None:
+    """Allow brief Flatpak instance cleanup, but never ignore a listed instance."""
+    deadline = monotonic() + DISCORD_EXIT_GRACE_SECONDS
+    if not discord_running():
+        return
+    print("Discord Flatpak instance detected; waiting briefly for it to exit.")
+    while True:
+        remaining = deadline - monotonic()
+        require(remaining > 0, message)
+        sleep(min(DISCORD_EXIT_POLL_SECONDS, remaining))
+        if not discord_running():
+            return
 
 
 def loader_bytes() -> bytes:
@@ -361,7 +385,7 @@ def version_tuple(version: str) -> tuple[int, ...]:
 
 
 def release_identity(artifact: Path) -> tuple[str, str]:
-    verify(artifact)
+    verify(artifact, quiet=True)
     with zipfile.ZipFile(artifact) as release:
         manifest = read_json(release.read("manifest.json"))
     return string(manifest["vencord_revision"]), string(manifest["vencord_version"])
@@ -370,8 +394,6 @@ def release_identity(artifact: Path) -> tuple[str, str]:
 def check_version_order(old: tuple[str, str], new: tuple[str, str]) -> None:
     old_revision, old_version = old
     new_revision, new_version = new
-    print(f"Existing Vencord: {old_version} ({old_revision[:7]})")
-    print(f"Production Vencord: {new_version} ({new_revision[:7]})")
     require(version_tuple(new_version) >= version_tuple(old_version), "Vencord downgrade refused")
     require(
         old_version != new_version or old_revision == new_revision,
@@ -379,7 +401,21 @@ def check_version_order(old: tuple[str, str], new: tuple[str, str]) -> None:
     )
 
 
-def check_foreign_version(runtime: Path, production: tuple[str, str]) -> None:
+def report_versions(
+    original: tuple[str, str],
+    production: tuple[str, str],
+    previous: tuple[str, str] | None = None,
+) -> None:
+    old_revision, old_version = original
+    new_revision, new_version = production
+    print(f"Existing Vencord: {old_version} ({old_revision[:7]})")
+    if previous is not None and previous != original:
+        revision, version = previous
+        print(f"Installed Vencord: {version} ({revision[:7]})")
+    print(f"Production Vencord: {new_version} ({new_revision[:7]})")
+
+
+def check_foreign_version(runtime: Path, production: tuple[str, str]) -> tuple[str, str]:
     revisions: set[str] = set()
     for name in ("renderer.js", "patcher.js", "preload.js"):
         first = regular(runtime / name).split(b"\n", 1)[0].rstrip(b"\r")
@@ -389,24 +425,28 @@ def check_foreign_version(runtime: Path, production: tuple[str, str]) -> None:
         revisions.add(match.group(1).decode("ascii"))
     require(len(revisions) == 1, "Existing Vencord bundle revisions disagree")
     revision = next(iter(revisions))
-    new_revision, new_version = production
+    new_revision, _ = production
     if new_revision.startswith(revision):
-        check_version_order((new_revision, new_version), production)
-        return
+        check_version_order(production, production)
+        return production
     known = [key for key in KNOWN_VENCORD_REVISIONS if key.startswith(revision)]
     require(
         len(known) == 1,
         "Unknown existing Vencord revision; build against the matching revision before adoption",
     )
-    check_version_order((known[0], KNOWN_VENCORD_REVISIONS[known[0]]), production)
+    original = (known[0], KNOWN_VENCORD_REVISIONS[known[0]])
+    check_version_order(original, production)
+    return original
 
 
 def compare_plugins(runtime: Path, artifact: Path, previous_archive: Path | None) -> bool:
     """Source maps are evidence of bundled directories, not of enabled settings."""
     production = release_identity(artifact)
-    check_foreign_version(runtime, production)
-    if previous_archive is not None:
-        check_version_order(release_identity(previous_archive), production)
+    original = check_foreign_version(runtime, production)
+    previous = release_identity(previous_archive) if previous_archive is not None else None
+    if previous is not None:
+        check_version_order(previous, production)
+    report_versions(original, production, previous)
     with zipfile.ZipFile(artifact) as release:
         new = release.read("debug/renderer.js.map")
     old = regular(runtime / "renderer.js.map")
@@ -463,7 +503,10 @@ def inventory(root: Path, *, ignore_manifest: bool = False) -> dict[str, str]:
     return files
 
 
-def installed(paths: Paths) -> dict[str, object] | None:
+def installed(
+    paths: Paths, *, reviewed_external: dict[str, str] | None = None
+) -> dict[str, object] | None:
+    """Validate ownership, including an exact reviewed runtime during explicit repair."""
     if not path_exists(paths.host):
         require(
             not path_exists(paths.sandbox),
@@ -484,7 +527,9 @@ def installed(paths: Paths) -> dict[str, object] | None:
         require(runtime == Path.home() / ".config/Vencord/dist", "Adopted runtime path changed")
         require(not path_exists(paths.sandbox), "Unexpected managed sandbox runtime")
         require(
-            state.get("sandbox_files") == owned_runtime(runtime), "Managed runtime files changed"
+            (state.get("sandbox_files") if reviewed_external is None else reviewed_external)
+            == owned_runtime(runtime),
+            "Managed runtime files changed",
         )
         require(
             state.get("original_runtime_files") == owned_runtime(adoption_backup(runtime)),
@@ -508,6 +553,78 @@ def installed(paths: Paths) -> dict[str, object] | None:
     return state
 
 
+def installation_state(paths: Paths, discord: Discord) -> tuple[str, dict[str, object] | None]:
+    """Report integration ownership, not whether the plugin is currently enabled."""
+    try:
+        state = installed(paths)
+        if state is None:
+            require(loader_status(discord.resources) != "managed", "Unowned managed loader")
+            return "Not installed", None
+        require(
+            state.get("deployment") == str(discord.deployment)
+            and state.get("scope") == discord.scope,
+            "Discord deployment or scope changed; inspect before upgrading",
+        )
+        if state.get("desktop_sha256") is None:
+            require(
+                state.get("adopted_runtime") is None and state.get("owned_loader") is False,
+                "Invalid prepared installation ownership",
+            )
+            require(
+                loader_status(discord.resources) == "managed"
+                or state.get("prepared_loader") == loader_fingerprint(discord.resources),
+                "Prepared loader changed; inspect before completing installation",
+            )
+            return "Prepared", state
+        if state.get("adopted_runtime") is not None:
+            require(
+                state.get("prepared_loader") == loader_fingerprint(discord.resources),
+                "Existing loader changed; inspect before upgrading",
+            )
+        else:
+            require(loader_status(discord.resources) == "managed", "Managed loader is missing")
+            require(
+                file_hash(discord.resources / "_app.asar") == state.get("original_asar_sha256"),
+                "Original Discord archive has changed",
+            )
+        return "Installed", state
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ValueError(f"Installation state: Incomplete — {exc}") from exc
+
+
+def select_adoption(
+    discord: Discord, previous: dict[str, object] | None, *, prepare: bool, adopt: bool | None
+) -> bool:
+    """Automatic normal installation requires a recognised existing Vencord patch."""
+    if adopt is not None:
+        return adopt
+    if prepare:
+        return False
+    if previous is not None and previous.get("adopted_runtime") is not None:
+        return True
+    status = loader_status(discord.resources)
+    if status == "managed" and previous is not None:
+        return False
+    if status == "unpatched-candidate":
+        raise ValueError(
+            "Discord must already have Vencord installed. Install Vencord from "
+            "https://vencord.dev/download/, verify it works, quit Discord and retry."
+        )
+    # The adoption path performs the full loader review; do not repeat OSTree
+    # verification here merely to choose the candidate mode.
+    return True
+
+
+def review_adoption_runtime(discord: Discord) -> Path:
+    try:
+        return adoption_runtime(discord)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ValueError(
+            f"Unsupported Vencord loader: {exc}. Install a compatible Vencord patch "
+            "or inspect the existing installation; no files were replaced."
+        ) from exc
+
+
 @contextmanager
 def exclusive(paths: Paths) -> Generator[None]:
     safe_path(paths.lock)
@@ -521,7 +638,7 @@ def exclusive(paths: Paths) -> Generator[None]:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise ValueError("Installer or managed Discord launcher is active") from exc
-        require(not discord_running(), "Quit Discord completely (including the tray) first")
+        require_discord_stopped("Quit Discord completely (including the tray) first")
         yield
     finally:
         os.close(fd)
@@ -646,11 +763,16 @@ def launcher(discord: Discord) -> bytes:
 
 
 def stage_release(
-    discord: Discord, artifact: Path, executable: Path, host: Path, sandbox: Path
+    discord: Discord,
+    artifact: Path,
+    executable: Path,
+    host: Path,
+    sandbox: Path,
+    reviewed_executable: str | None = None,
 ) -> str:
     archive = host / "vencoverlay-vencord.zip"
     shutil.copyfile(artifact, archive)
-    verify(archive)
+    verify(archive, quiet=True)
     with zipfile.ZipFile(archive) as release:
         manifest = read_json(release.read("manifest.json"))
         version = string(manifest["version"])
@@ -673,11 +795,13 @@ def stage_release(
     binary = host / "vencoverlay"
     shutil.copyfile(executable, binary)
     binary.chmod(0o755)
-    result = command(str(binary), "--version")
-    require(
-        result.returncode == 0 and result.stdout.strip() == f"VencOverlay {version}",
-        "Executable version does not match frontend archive",
-    )
+    if reviewed_executable is not None:
+        require(
+            file_hash(binary) == reviewed_executable,
+            "Staged executable changed after compatibility review",
+        )
+    native_artifacts.probe(binary, version)
+    print("Native runtime compatibility: passed (unmapped window)")
     (host / "app.asar").write_bytes(loader_bytes())
     wrapper = host / "discord-with-overlay"
     wrapper.write_bytes(launcher(discord))
@@ -700,33 +824,74 @@ def install(
     prepare: bool,
     replace_launcher: bool,
     yes: bool,
-    adopt: bool = False,
+    adopt: bool | None = None,
     allow_plugin_removal: bool = False,
+    reviewed_executable: str | None = None,
+    repair: bool = False,
 ) -> None:
     with exclusive(paths):
-        previous = installed(paths)
+        external_files: dict[str, str] | None = None
+        recovery: Path | None = None
+        if repair:
+            require(not prepare and adopt is not False, "Repair requires Vencord adoption")
+            repair_runtime = review_adoption_runtime(discord)
+            external_files = owned_runtime(repair_runtime)
+            previous = installed(paths, reviewed_external=external_files)
+            require(
+                previous is not None
+                and previous.get("adopted_runtime") == str(repair_runtime)
+                and previous.get("owned_loader") is False
+                and previous.get("desktop_sha256") is not None
+                and previous.get("scope") == discord.scope,
+                "Repair requires an existing adopted installation in the same scope",
+            )
+            assert previous is not None
+            changed = previous.get("sandbox_files") != external_files
+            require(
+                changed
+                or previous.get("deployment") != str(discord.deployment)
+                or previous.get("prepared_loader") != loader_fingerprint(discord.resources),
+                "No repair required; run ./install.sh for a normal upgrade",
+            )
+            if changed:
+                recovery = repair_runtime.with_name(f".vencoverlay-recovery-dist-{uuid4().hex}")
+            state_label = "Incomplete (explicit repair)"
+            adopt = True
+        else:
+            state_label, previous = installation_state(paths, discord)
+        print(f"Installation state: {state_label}")
         status = loader_status(discord.resources)
+        adopt = select_adoption(discord, previous, prepare=prepare, adopt=adopt)
         require(not (adopt and prepare), "Adoption cannot be combined with preparation")
+        require(not allow_plugin_removal or adopt, "Plugin removal consent requires adoption")
         previously_adopted = previous is not None and previous.get("adopted_runtime") is not None
         require(
-            not previously_adopted or adopt, "Use --adopt-existing for adopted runtime upgrades"
+            not previously_adopted or adopt,
+            "Use automatic adoption or --adopt-existing for adopted runtime upgrades",
         )
-        runtime = adoption_runtime(discord) if adopt else None
+        prepared = state_label == "Prepared"
+        runtime = review_adoption_runtime(discord) if adopt else None
         backup = adoption_backup(runtime) if runtime is not None else None
         original_runtime_files: dict[str, str] | None = None
         reviewed_artifact: str | None = None
         if previous is not None and runtime is None:
             reviewed_artifact = file_hash(artifact)
-            check_version_order(
-                release_identity(paths.host / "vencoverlay-vencord.zip"),
-                release_identity(artifact),
-            )
+            existing_identity = release_identity(paths.host / "vencoverlay-vencord.zip")
+            production_identity = release_identity(artifact)
+            check_version_order(existing_identity, production_identity)
+            report_versions(existing_identity, production_identity)
         if runtime is not None:
             require(
-                previous is None or previously_adopted,
-                "Cannot adopt over another installation mode",
+                previous is None or previously_adopted or prepared,
+                "Cannot adopt over another active installation mode",
             )
             assert backup is not None
+            if prepared:
+                assert previous is not None
+                require(
+                    previous.get("prepared_loader") == loader_fingerprint(discord.resources),
+                    "Prepared loader changed; inspect before completing installation",
+                )
             require(
                 previously_adopted or not path_exists(backup),
                 "Original runtime backup already exists",
@@ -739,6 +904,19 @@ def install(
                 artifact,
                 paths.host / "vencoverlay-vencord.zip" if previously_adopted else None,
             )
+            if recovery is not None:
+                # A replaced runtime must itself pass the foreign-bundle review. Keep
+                # the original uninstall baseline unchanged; do not silently downgrade
+                # a newer externally installed Vencord on eventual removal.
+                production = release_identity(artifact)
+                require(
+                    check_foreign_version(runtime, production)
+                    == check_foreign_version(backup, production),
+                    "External Vencord revision differs from the original backup; "
+                    "repair requires manual review",
+                )
+                print("Reviewing externally replaced Vencord runtime:")
+                removed = compare_plugins(runtime, artifact, None) or removed
             require(
                 not removed or allow_plugin_removal,
                 "Upstream plugins would be removed; review differences "
@@ -746,7 +924,7 @@ def install(
             )
         if previous is not None:
             require(
-                previous.get("deployment") == str(discord.deployment),
+                repair or previous.get("deployment") == str(discord.deployment),
                 "Discord deployment changed; inspect before upgrading",
             )
             require(previous.get("scope") == discord.scope, "Discord installation scope changed")
@@ -788,7 +966,7 @@ def install(
                 )
         prepared_loader = (
             previous.get("prepared_loader")
-            if previous is not None
+            if previous is not None and not repair
             else loader_fingerprint(discord.resources)
         )
         active = not prepare
@@ -817,11 +995,24 @@ def install(
             artifact.is_file() and executable.is_file(),
             "Build artifacts missing; build frontend and executable first",
         )
+        if repair:
+            action = "Repair"
+        elif prepare:
+            action = "Prepare"
+        elif prepared:
+            action = "Complete installation of"
+        elif previous is not None:
+            action = "Upgrade"
+        else:
+            action = "Install"
         confirm(
             yes,
-            f"{'Prepare' if prepare else 'Install'} VencOverlay for {discord.scope} Discord."
-            f"\nHost: {paths.host}\nRuntime: {runtime or paths.sandbox}\nLoader: {status}"
+            f"{action} VencOverlay for {discord.scope} Discord."
+            f"\nHost: {paths.host}\nRuntime: {runtime or paths.sandbox}"
+            f"\nLoader: {'verified existing Vencord' if adopt else status}"
             + (f"\nOriginal runtime backup: {backup}" if adopt else "")
+            + (f"\nExternally replaced runtime retained at: {recovery}" if recovery else "")
+            + ("\nUninstall will still restore the original backup." if repair else "")
             + "\nExisting Vencord settings are not modified.",
         )
         runtime_parent = runtime.parent if runtime is not None else paths.sandbox.parent
@@ -843,7 +1034,14 @@ def install(
             host, sandbox = host_stage / "host", sandbox_stage / "sandbox"
             host.mkdir()
             sandbox.mkdir()
-            version = stage_release(discord, artifact, executable, host, sandbox)
+            if reviewed_executable is not None:
+                require(
+                    file_hash(executable) == reviewed_executable,
+                    "Executable changed after compatibility review",
+                )
+            version = stage_release(
+                discord, artifact, executable, host, sandbox, reviewed_executable
+            )
             if reviewed_artifact is not None:
                 require(
                     file_hash(host / "vencoverlay-vencord.zip") == reviewed_artifact,
@@ -875,12 +1073,18 @@ def install(
                 "original_runtime_files": original_runtime_files,
             }
             (host / "install-manifest.json").write_bytes(json_data(state))
+            # The adoption sandbox probe may leave an instance briefly listed.
+            # Still require a fresh stopped-state check before publishing.
+            require_discord_stopped("Discord deployment or running state changed")
             # Recheck the deployment and running state immediately before publishing.
             require(
                 detect(discord.scope) == discord and not discord_running(),
                 "Discord deployment or running state changed",
             )
-            require(installed(paths) == previous, "Existing installation changed during staging")
+            require(
+                installed(paths, reviewed_external=external_files) == previous,
+                "Existing installation changed during staging",
+            )
             if active:
                 current_desktop = file_hash(paths.desktop) if path_exists(paths.desktop) else None
                 require(
@@ -912,7 +1116,11 @@ def install(
                     tx.replace(paths.host, host)
                     if not previously_adopted:
                         tx.move(runtime, backup)
+                    elif recovery is not None:
+                        tx.move(runtime, recovery)
                     tx.replace(runtime, sandbox / "runtime")
+                    if prepared:
+                        tx.replace(paths.sandbox, None)
                     tx.replace(paths.desktop, desktop_stage)
             elif active and can_patch:
                 with tempfile.TemporaryDirectory(
@@ -935,16 +1143,51 @@ def install(
                             "Managed loader changed",
                         )
                         tx.replace(paths.desktop, desktop_stage)
+        if recovery is not None:
+            print(f"External runtime preserved at: {recovery}")
         print(f"{'Prepared' if prepare else 'Installed'} VencOverlay {version}")
         if prepare:
             print(
                 f"Loader template: {paths.host / 'app.asar'}\nSandbox patcher: {PATCHER}"
                 "\nNo Discord loader or desktop launcher was changed."
+                "\nInstallation state: Prepared (inactive). Run ./install.sh to complete "
+                "integration when the loader is compatible."
             )
         else:
             print(
+                "Installation state: Installed.\n"
                 "Start Discord using its desktop launcher; enable VencOverlay in Vencord Plugins."
             )
+
+
+def refresh_exported_desktop(discord: Discord) -> None:
+    """Best-effort notification for the now-unshadowed Flatpak desktop entry."""
+    try:
+        deployment = discord.deployment
+        require(
+            deployment.is_absolute()
+            and len(deployment.parents) >= 5
+            and deployment.parts[-5:-1] == ("app", APP, discord.arch, "stable"),
+            "Unrecognised Flatpak deployment layout",
+        )
+        export = deployment.parents[4] / "exports/share/applications" / f"{APP}.desktop"
+        safe_path(export.parent)
+        require(export.is_symlink(), f"Expected Flatpak desktop export symlink: {export}")
+        require(
+            export.resolve(strict=True) == discord.exported_desktop,
+            f"Flatpak desktop export does not reference the verified deployment: {export}",
+        )
+        regular(discord.exported_desktop)
+        # Equivalent to touch -h: never change the target's timestamps or contents.
+        os.utime(export, follow_symlinks=False)
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(
+            f"Warning: Could not refresh the original Discord application icon: {exc}. "
+            "Uninstallation succeeded; your desktop may need to refresh its application list.",
+            file=sys.stderr,
+        )
+    else:
+        print("Original Discord desktop export refreshed.")
 
 
 def uninstall(paths: Paths, yes: bool) -> None:
@@ -1025,6 +1268,61 @@ def uninstall(paths: Paths, yes: bool) -> None:
             if runtime is None:
                 tx.replace(paths.sandbox, None)
         print("VencOverlay integration removed; user configuration retained.")
+        if state.get("desktop_sha256") is not None and not path_exists(paths.desktop):
+            refresh_exported_desktop(current)
+
+
+def review_native(artifact: Path, executable: Path) -> tuple[str, str]:
+    """Review trusted local production inputs before installation or execution."""
+    safe_path(artifact)
+    require(
+        artifact.is_file() and executable.is_file(),
+        "Production artifacts missing; obtain a complete package or build from source",
+    )
+    verify(artifact)
+    with zipfile.ZipFile(artifact) as release:
+        version = string(read_json(release.read("manifest.json"))["version"])
+    binary = regular(executable)
+    sidecar = executable.with_name(executable.name + "-native.json")
+    require(
+        sidecar.is_file(), "Native build metadata missing; rebuild or obtain a complete package"
+    )
+    sidecar_data = regular(sidecar)
+    record = native_artifacts.check_metadata(sidecar_data, binary, version)
+    if (ROOT / "release-manifest.json").is_file():
+        require(
+            artifact == ROOT / "dist/vencoverlay-vencord.zip"
+            and executable == ROOT / native_artifacts.NATIVE,
+            "Use the packaged artifacts when installing from a release",
+        )
+        manifest = read_json(regular(ROOT / "release-manifest.json"))
+        entries = object_dict(manifest["files"])
+        require(
+            manifest.get("schema") == 2 and manifest.get("version") == version,
+            "Release manifest version mismatch",
+        )
+        for path, data in (
+            (artifact, regular(artifact)),
+            (executable, binary),
+            (sidecar, sidecar_data),
+        ):
+            name = path.relative_to(ROOT).as_posix()
+            require(
+                entries.get(name) == hashes({name: data})[name],
+                f"Release artifact checksum mismatch: {name}",
+            )
+    elif (ROOT / "pyproject.toml").is_file() and executable == ROOT / native_artifacts.NATIVE:
+        require(
+            record["inputs"] == native_artifacts.source_hashes(ROOT),
+            "Native build inputs changed; rebuild with ./build.sh",
+        )
+    print(f"Native executable checksum verified: {sha256(binary)}")
+    print(f"Native build environment: {record['build_environment']}")
+    target = native_artifacts.build_environment()
+    print(f"Native target environment: {target}")
+    if target["distribution"] != "fedora" or target["version"] != "43":
+        print("Warning: this target OS version is outside the Fedora 43 live test baseline.")
+    return version, sha256(binary)
 
 
 def main() -> None:
@@ -1041,10 +1339,19 @@ def main() -> None:
         action="store_true",
         help="Explicitly allow backing up and replacing an existing local desktop entry",
     )
-    parser.add_argument(
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
+        "--patch-clean",
+        action="store_true",
+        help="Advanced: explicitly patch a verified writable per-user Discord deployment",
+    )
+    modes.add_argument(
         "--adopt-existing",
         action="store_true",
-        help="Adopt a verified existing Vencord loader and runtime",
+        help="Explicitly adopt a verified Vencord runtime (normally detected automatically)",
+    )
+    modes.add_argument(
+        "--repair", action="store_true", help="Repair a verified previously adopted runtime"
     )
     parser.add_argument(
         "--allow-plugin-removal",
@@ -1057,12 +1364,19 @@ def main() -> None:
     args = object_dict(vars(parser.parse_args()))
     if args["action"] != "install" and (args["prepare_only"] or args["replace_launcher"]):
         parser.error("Preparation and launcher replacement options require installation")
-    if args["adopt_existing"] and args["action"] == "uninstall":
+    if (args["adopt_existing"] or args["patch_clean"]) and args["action"] == "uninstall":
         parser.error("Uninstall automatically detects adoption")
-    if args["allow_plugin_removal"] and not (
-        args["adopt_existing"] and args["action"] == "install"
+    if args["allow_plugin_removal"] and (
+        args["action"] != "install" or args["prepare_only"] or args["patch_clean"]
     ):
-        parser.error("Plugin removal consent requires --adopt-existing installation")
+        parser.error("Plugin removal consent requires Vencord adoption installation")
+    if args["repair"] and (
+        args["action"] != "install" or args["prepare_only"] or args["replace_launcher"]
+    ):
+        parser.error("Repair requires installation without preparation or launcher replacement")
+    if args["prepare_only"] and (args["adopt_existing"] or args["patch_clean"]):
+        parser.error("Preparation cannot be combined with an active installation mode")
+    adopt = True if args["adopt_existing"] else False if args["patch_clean"] else None
     try:
         require(os.getuid() != 0, "Run as your normal user; never sudo this installer")
         require(
@@ -1077,27 +1391,57 @@ def main() -> None:
         else:
             scope = string(args["scope"]) if args["scope"] is not None else None
             discord = detect(scope)
+            artifact = args["artifact"]
+            executable = args["executable"]
+            assert isinstance(artifact, Path) and isinstance(executable, Path)
             if args["action"] == "check":
                 print(
                     f"Discord scope: {discord.scope}\nDeployment: {discord.deployment}"
                     f"\nResources: {discord.resources}"
-                    f"\nLoader: {loader_status(discord.resources)}"
                     f"\napp.asar: {file_description(discord.resources / 'app.asar')}"
                     f"\n_app.asar: {file_description(discord.resources / '_app.asar')}"
                     f"\napp directory: {file_description(discord.resources / 'app')}"
-                    f"\nMatches OSTree original: {verified_clean(discord)}"
+                    f"\nUnpatched app.asar matches OSTree: {verified_clean(discord)}"
                     f"\nResources writable: {os.access(discord.resources, os.W_OK)}"
                     f"\nDiscord running: {discord_running()}"
                     f"\nLocal launcher: {paths.desktop if paths.desktop.exists() else 'none'}"
                     f"\nHost install: {paths.host}\nSandbox runtime: {paths.sandbox}"
-                    f"\nHost executable present: {(ROOT / 'dist/vencoverlay').is_file()}"
-                    f"\nFrontend archive present: "
-                    f"{(ROOT / 'dist/vencoverlay-vencord.zip').is_file()}"
+                    f"\nCandidate executable present: {executable.is_file()}"
+                    f"\nCandidate frontend archive present: {artifact.is_file()}"
                 )
-                state = installed(paths)
-                print(f"Managed installation: {state.get('version') if state else 'none'}")
-                if args["adopt_existing"]:
-                    runtime = adoption_runtime(discord)
+                label, state = installation_state(paths, discord)
+                print(f"Installation state: {label}")
+                print(f"Managed version: {state.get('version') if state else 'none'}")
+                adopt = select_adoption(discord, state, prepare=False, adopt=adopt)
+                require(
+                    state is None or state.get("adopted_runtime") is None or adopt,
+                    "Use automatic adoption or --adopt-existing for adopted runtime upgrades",
+                )
+                require(
+                    artifact.is_file() and executable.is_file(),
+                    "Production artifacts missing; obtain a complete package or build from source",
+                )
+                version, digest = review_native(artifact.absolute(), executable.absolute())
+                native_artifacts.probe(executable.absolute(), version)
+                require(
+                    file_hash(executable.absolute()) == digest,
+                    "Executable changed during compatibility check",
+                )
+                print("Native runtime compatibility: passed (unmapped window)")
+                if adopt:
+                    runtime = review_adoption_runtime(discord)
+                    if label == "Prepared":
+                        assert state is not None
+                        require(
+                            state.get("prepared_loader") == loader_fingerprint(discord.resources),
+                            "Prepared loader changed; inspect before completing installation",
+                        )
+                    require(
+                        state is None
+                        or label == "Prepared"
+                        or state.get("adopted_runtime") is not None,
+                        "Cannot adopt over another active installation mode",
+                    )
                     sandbox_runtime_matches(discord, runtime)
                     backup = adoption_backup(runtime)
                     adopted = state is not None and state.get("adopted_runtime") is not None
@@ -1114,9 +1458,26 @@ def main() -> None:
                         artifact.absolute(),
                         paths.host / "vencoverlay-vencord.zip" if adopted else None,
                     )
+                    print("Loader: verified existing Vencord")
                     print(f"Adoption runtime: {runtime}\nOriginal runtime backup: {backup}")
                     print("Original _app.asar matches OSTree: True")
                     print(f"Upstream removal consent required: {removed}")
+                else:
+                    require(
+                        loader_status(discord.resources) == "managed"
+                        or (
+                            discord.scope == "user"
+                            and os.access(discord.resources, os.W_OK)
+                            and verified_clean(discord)
+                        ),
+                        "Unknown or protected loader; install Vencord first",
+                    )
+                    print(f"Loader: {loader_status(discord.resources)}")
+                if label == "Prepared":
+                    print(
+                        "Prepared files are inactive. Quit Discord and run ./install.sh "
+                        "to complete installation."
+                    )
             else:
                 artifact = args["artifact"]
                 executable = args["executable"]
@@ -1125,6 +1486,7 @@ def main() -> None:
                     "Invalid artifact paths",
                 )
                 assert isinstance(artifact, Path) and isinstance(executable, Path)
+                _, digest = review_native(artifact.absolute(), executable.absolute())
                 install(
                     paths,
                     discord,
@@ -1133,8 +1495,10 @@ def main() -> None:
                     prepare=bool(args["prepare_only"]),
                     replace_launcher=bool(args["replace_launcher"]),
                     yes=bool(args["yes"]),
-                    adopt=bool(args["adopt_existing"]),
+                    adopt=adopt,
                     allow_plugin_removal=bool(args["allow_plugin_removal"]),
+                    reviewed_executable=digest,
+                    repair=bool(args["repair"]),
                 )
     except (
         OSError,

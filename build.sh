@@ -75,11 +75,14 @@ fi
 mkdir -p build dist
 stage=$(mktemp -d "$PROJECT_ROOT/build/nuitka.XXXXXXXX")
 publish=''
+metadata_publish=''
 cleanup() {
     if [[ -n $publish ]]; then rm -f -- "$publish"; fi
+    if [[ -n $metadata_publish ]]; then rm -f -- "$metadata_publish"; fi
     rm -rf -- "$stage"
 }
 trap cleanup EXIT
+"${runner[@]}" python -m scripts.native_artifacts snapshot "$stage/native-inputs.json"
 # Nuitka 4.3.5's GI plugin queries unversioned typelibs when generating
 # virtual modules. On hosts with GTK3 and GTK4, this can discover GTK4
 # dependencies even though the application requires GTK3 at runtime.
@@ -165,6 +168,7 @@ actual=$("$binary" --version)
 help_output=$("$binary" --help)
 printf '%s\n' "$help_output"
 grep -Fq -- '--demo' <<< "$help_output" || die 'Compiled demo option missing.'
+grep -Fq -- '--check-runtime' <<< "$help_output" || die 'Compiled runtime check missing.'
 status=0
 "$binary" --unknown >"$stage/invalid.log" 2>&1 || status=$?
 [[ $status == 2 ]] || die "Unexpected invalid argument exit status: $status"
@@ -183,7 +187,21 @@ grep -Fq 'port must be 1 to 65535' "$stage/runtime.log" || {
 }
 publish=$(mktemp "$PROJECT_ROOT/dist/.vencoverlay.XXXXXXXX")
 install -m 755 -- "$binary" "$publish"
+metadata_publish=$(mktemp "$PROJECT_ROOT/dist/.vencoverlay-native.XXXXXXXX")
+"${runner[@]}" python -m scripts.native_artifacts record \
+    "$publish" "$stage/native-inputs.json" "${expected#VencOverlay }" "$metadata_publish"
+# Capture evidence before the compiler's temporary directory disappears. This
+# includes only candidate notices; the raw report remains local to the build host.
+log 'Collecting native licence evidence'
+"${runner[@]}" python -m scripts.release_licences native \
+    "$stage/compilation-report.xml" "$publish" "$stage/native-licences.zip"
+install -m 600 -- "$stage/compilation-report.xml" "$stage/report-local.xml"
+mv -fT -- "$stage/report-local.xml" "$PROJECT_ROOT/build/compilation-report.xml"
+mv -fT -- "$stage/native-licences.zip" "$PROJECT_ROOT/build/native-licences.zip"
+# Publish metadata last; an interrupted pair is rejected by checksum verification.
 mv -fT -- "$publish" "$PROJECT_ROOT/dist/vencoverlay"
 publish=''
+mv -fT -- "$metadata_publish" "$PROJECT_ROOT/dist/vencoverlay-native.json"
+metadata_publish=''
 log 'Build completed successfully'
 printf '%s\nExecutable: %s\n' "$actual" "$PROJECT_ROOT/dist/vencoverlay"

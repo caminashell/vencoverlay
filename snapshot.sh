@@ -22,7 +22,7 @@ root = Path.cwd()
 areas = {'src', 'plugin', 'scripts', 'tests', 'docs'}
 root_files = {'pyproject.toml', 'uv.lock', 'LICENSE', 'README.md', '.gitignore',
               'preview.png', 'setup.sh', 'validate.sh', 'stats.sh', 'snapshot.sh',
-              'version.sh', 'install.sh', 'uninstall.sh', 'build.sh'}
+              'version.sh', 'install.sh', 'uninstall.sh', 'build.sh', 'release.sh'}
 excluded = {'.git', '.venv', 'venv', '__pycache__', '.pytest_cache', '.ruff_cache',
             '.basedpyright', 'node_modules', 'build', 'dist', 'output', 'htmlcov',
             '.benchmarks', '.ssh', '.aws', 'secrets', 'credentials'}
