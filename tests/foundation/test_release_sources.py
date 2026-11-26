@@ -80,7 +80,7 @@ def test_companion_archive_integrity(tmp_path: Path) -> None:
         "rpm_packages": {"gtk3": {"rpm_metadata": "LGPL\ngtk3-3.24-1.fc43.src.rpm"}},
         "python_packages": {"pycairo": {"version": "1.0"}},
     }
-    frontend = {"mapped_npm_packages": {"root": {"name": "test", "version": "1.0"}}}
+    frontend = {"mapped_npm_packages": {"root": {"name": "fflate", "version": "0.8.3"}}}
     identity = {"native_sha256": "native", "frontend_sha256": "frontend"}
     evidence = release_licences.zip_bytes(
         {
@@ -89,27 +89,36 @@ def test_companion_archive_integrity(tmp_path: Path) -> None:
             "inventory.json": release_sources.json_bytes(identity),
         }
     )
+    upstream = release_sources.upstream_sources({"fflate-0.8.3.tgz"})
+    filename, (url, _) = next(iter(upstream.items()))
+    upstream_member = f"upstream/{filename}"
+    upstream_notice = f"notices/{upstream_member}/LICENSE"
     payload = {
         "rpm/gtk3-3.24-1.fc43.src.rpm": b"fake rpm",
         "python/pycairo-1.0.tar.gz": b"fake python source",
-        "npm/test-1.0.tgz": b"fake npm tarball",
+        "npm/fflate-0.8.3.tgz": b"fake npm tarball",
+        upstream_member: b"fake upstream source",
+        upstream_notice: b"upstream licence",
         "notices/LICENSE": b"fixture notice",
     }
+    downloads: dict[str, dict[str, str | int]] = {
+        n: {"sha256": release_sources.sha256(d), "bytes": len(d)}
+        for n, d in payload.items()
+        if not n.startswith("notices/")
+    }
+    downloads[upstream_member]["url"] = url
+    notices = {n: release_sources.sha256(d) for n, d in payload.items() if n.startswith("notices/")}
     metadata = {
         **identity,
         "review": release_licences.REVIEW,
         "evidence_sha256": release_sources.sha256(evidence),
-        "downloads": {
-            n: {"sha256": release_sources.sha256(d), "bytes": len(d)}
-            for n, d in payload.items()
-            if not n.startswith("notices/")
-        },
-        "notices": {"notices/LICENSE": release_sources.sha256(payload["notices/LICENSE"])},
+        "downloads": downloads,
+        "notices": notices,
     }
-    payload["source-manifest.json"] = release_sources.json_bytes(metadata)
     path = tmp_path / "sources.tar.gz"
 
     def write() -> None:
+        payload["source-manifest.json"] = release_sources.json_bytes(metadata)
         with tarfile.open(path, "w:gz") as archive:
             for name, data in payload.items():
                 info = tarfile.TarInfo(name)
@@ -120,7 +129,63 @@ def test_companion_archive_integrity(tmp_path: Path) -> None:
     assert release_sources.verify(path, evidence) == metadata
     with pytest.raises(ValueError, match="Stale source evidence"):
         release_sources.verify(path, evidence + b"changed")
+    downloads[upstream_member]["url"] = "https://example.com/wrong"
+    write()
+    with pytest.raises(ValueError, match="Upstream source URL mismatch"):
+        release_sources.verify(path, evidence)
+    downloads[upstream_member]["url"] = url
+    source = payload.pop(upstream_member)
+    record = downloads.pop(upstream_member)
+    write()
+    with pytest.raises(ValueError, match="Missing exact upstream source trees"):
+        release_sources.verify(path, evidence)
+    payload[upstream_member] = source
+    downloads[upstream_member] = record
+    notice = payload.pop(upstream_notice)
+    digest = notices.pop(upstream_notice)
+    write()
+    with pytest.raises(ValueError, match="Missing upstream root notice"):
+        release_sources.verify(path, evidence)
+    payload[upstream_notice] = notice
+    notices[upstream_notice] = digest
     payload["notices/LICENSE"] = b"changed notice"
     write()
     with pytest.raises(ValueError, match="Source notice checksum mismatch"):
         release_sources.verify(path, evidence)
+
+
+def test_upstream_source_plan() -> None:
+    vap = "264a6b4f8f88f3bfaa892de4a8b6c2745976039e"
+    fflate = "dcb3714a6c25db3a2748641019c5277413d09714"
+    assert release_sources.upstream_sources({"@vap+core-0.0.12.tgz", "fflate-0.8.3.tgz"}) == {
+        f"@vap+core-0.0.12-{vap}.tar.gz": (
+            f"https://codeload.github.com/Vap0r1ze/vapcord/tar.gz/{vap}",
+            f"vapcord-{vap}",
+        ),
+        f"fflate-0.8.3-{fflate}.tar.gz": (
+            f"https://codeload.github.com/101arrowz/fflate/tar.gz/{fflate}",
+            f"fflate-{fflate}",
+        ),
+    }
+    assert release_sources.upstream_sources({"gifenc-1.0.3.tgz"}) == {}
+    with pytest.raises(ValueError, match="Review upstream source pin"):
+        release_sources.upstream_sources({"fflate-0.8.4.tgz"})
+
+
+def test_upstream_tree_validation(tmp_path: Path) -> None:
+    path = tmp_path / "upstream.tar.gz"
+
+    def write(name: str) -> None:
+        with tarfile.open(path, "w:gz") as archive:
+            member = tarfile.TarInfo(name)
+            member.size = 6
+            archive.addfile(member, io.BytesIO(b"source"))
+
+    write("fflate-revision/src/index.ts")
+    release_sources.verify_upstream_tree(path, "fflate-revision")
+    write("fflate-revision/src/index.d.ts")
+    with pytest.raises(ValueError, match="Missing upstream TypeScript"):
+        release_sources.verify_upstream_tree(path, "fflate-revision")
+    write("fflate-other/src/index.ts")
+    with pytest.raises(ValueError, match="Unexpected upstream archive root"):
+        release_sources.verify_upstream_tree(path, "fflate-revision")

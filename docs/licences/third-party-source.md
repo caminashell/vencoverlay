@@ -33,7 +33,10 @@ https://github.com/caminashell/vencoverlay/releases
   `rpm/` contains matching Fedora source RPMs including distribution patches
   and spec files; `python/` contains locked Python source distributions;
   `npm/` contains the exact locked frontend packages, including the pinned
-  gifenc Git archive. `notices/` contains the supplemental licence material.
+  gifenc Git archive. `upstream/` contains the full commit-pinned source trees
+  for @vap/core and fflate, including editable TypeScript and build files;
+  the original locked npm packages are retained. `notices/` contains the
+  supplemental licence material, including the upstream root notices.
 
 The source of VencOverlay's original overlay is attributed in the project
 README and the original plugin author is credited in the frontend attribution.
@@ -44,7 +47,7 @@ Vencord revision: `d086992fb674299a2fa05ac6432edc3a777389f3`.
 
 | Component | Attribution and source | Licence material |
 |---|---|---|
-| @vap/core 0.0.12 | Copyright (c) 2022 Justice Almanzar. Published npm `gitHead`: `a6d3c6af4e5a533f91363d2c617b849b9f08ce10`. [Exact upstream licence](https://github.com/Vap0r1ze/vapcord/blob/a6d3c6af4e5a533f91363d2c617b849b9f08ce10/LICENSE); [source tree](https://github.com/Vap0r1ze/vapcord/tree/a6d3c6af4e5a533f91363d2c617b849b9f08ce10). | `notices/npm/@vap+core-0.0.12.tgz/LICENSE` |
+| @vap/core 0.0.12 | Copyright (c) 2022 Justice Almanzar. Published npm `gitHead`: `a6d3c6af4e5a533f91363d2c617b849b9f08ce10`. Corresponding source revision: `264a6b4f8f88f3bfaa892de4a8b6c2745976039e`. [Upstream licence](https://github.com/Vap0r1ze/vapcord/blob/264a6b4f8f88f3bfaa892de4a8b6c2745976039e/LICENSE); [source tree](https://github.com/Vap0r1ze/vapcord/tree/264a6b4f8f88f3bfaa892de4a8b6c2745976039e). | `notices/npm/@vap+core-0.0.12.tgz/LICENSE` |
 | BetterDiscord addon metadata parser | Copyright 2023 BetterDiscord contributors; Copyright 2023 Vendicated and Vencord contributors. `src/main/themes/index.ts` in the nested Vencord source. | Apache 2.0: `notices/vendored/Apache-2.0.txt` and original source/legal headers |
 | idb-keyval v6.2.0 | Copyright 2016 Jake Archibald; Copyright 2022 Vendicated. `src/api/DataStore/index.ts` in the nested Vencord source. | Apache 2.0: `notices/vendored/Apache-2.0.txt` and original source/legal headers |
 | crxToZip | Copyright (c) 2013 Rob Wu. `src/main/utils/crxToZip.ts` in the nested Vencord source. | `notices/vendored/crxToZip-MPL-2.0.txt` |
@@ -57,6 +60,29 @@ location above; its source header and the complete MPL 2.0 text are retained.
 The original component licence terms and generated attribution headers remain
 applicable. The four other mapped npm packages retain their original licences
 in the inventories and companion notices.
+
+## Additional upstream frontend source
+
+- @vap/core 0.0.12: `Vap0r1ze/vapcord` commit
+  `264a6b4f8f88f3bfaa892de4a8b6c2745976039e` (`feat(ipc): worker options`). The published npm
+  `gitHead` is its parent, `a6d3c6af4e5a533f91363d2c617b849b9f08ce10`,
+  which still declares version 0.0.11 and lacks the worker options present in
+  the 0.0.12 package. The successor changes only the worker implementation
+  and version metadata. Applying that upstream diff to the parent source and
+  transpiling all six implementation files produced JavaScript byte-for-byte
+  identical to the published npm package. The successor is therefore the
+  corresponding source pin; the registry metadata is retained for provenance.
+- fflate 0.8.3: `101arrowz/fflate` commit
+  `dcb3714a6c25db3a2748641019c5277413d09714`, the peeled commit of the
+  upstream annotated `v0.8.3` tag. npm did not provide a `gitHead`.
+
+The collector downloads the full GitHub archives using these immutable commit
+references, retains their original root notices, checks for TypeScript source
+and records archive URLs, sizes and SHA-256 checksums. The npm tarballs remain
+verified against the pinned pnpm lockfile. The fflate tag establishes the
+upstream version reference, not an independently reproduced npm build. Review
+both upstream trees and their relationship to the distributed packages before
+publication; the additional archives are not used as runtime dependencies.
 
 ## Native rebuilding and modification
 

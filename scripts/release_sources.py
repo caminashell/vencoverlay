@@ -165,6 +165,52 @@ def npm_sources(lock: str, frontend: dict[str, object]) -> dict[str, tuple[str, 
     return result
 
 
+# Additional preferred source trees for the reviewed frontend package versions.
+# Keep the lockfile-verified npm packages as well. A version change needs review.
+UPSTREAM_PINS = {
+    "@vap+core-0.0.12.tgz": (
+        "Vap0r1ze/vapcord",
+        "264a6b4f8f88f3bfaa892de4a8b6c2745976039e",
+    ),
+    "fflate-0.8.3.tgz": (
+        "101arrowz/fflate",
+        "dcb3714a6c25db3a2748641019c5277413d09714",
+    ),
+}
+
+
+def upstream_sources(npm: set[str]) -> dict[str, tuple[str, str]]:
+    result: dict[str, tuple[str, str]] = {}
+    for package, (repository, revision) in UPSTREAM_PINS.items():
+        prefix = package.rsplit("-", 1)[0] + "-"
+        matching = {name for name in npm if name.startswith(prefix)}
+        if not matching:
+            continue
+        require(matching == {package}, f"Review upstream source pin: {prefix}")
+        root = repository.split("/")[-1] + "-" + revision
+        filename = package.removesuffix(".tgz") + "-" + revision + ".tar.gz"
+        url = f"https://codeload.github.com/{repository}/tar.gz/{revision}"
+        result[filename] = (url, root)
+    return result
+
+
+def verify_upstream_tree(path: Path, root: str) -> None:
+    """Check the pinned archive layout and presence of editable TypeScript."""
+    has_source = False
+    with tarfile.open(path, "r:gz") as archive:
+        for member in archive:
+            parts = PurePosixPath(member.name).parts
+            require(
+                bool(parts) and parts[0] == root and ".." not in parts,
+                f"Unexpected upstream archive root: {path.name}",
+            )
+            if member.isfile() and member.size > 0:
+                name = parts[-1]
+                if name.endswith(".ts") and not name.endswith(".d.ts"):
+                    has_source = True
+    require(has_source, f"Missing upstream TypeScript source: {path.name}")
+
+
 def archive_notices(path: Path, prefix: str) -> dict[str, bytes]:
     """Read notices without extracting or running third-party code."""
     files: dict[str, bytes] = {}
@@ -265,6 +311,17 @@ def collect(root: Path) -> Path:
                 downloads[member] = path
                 origins[member] = url
                 notices.update(archive_notices(path, f"notices/{group}/{filename}"))
+        for filename, (url, archive_root) in sorted(upstream_sources(set(npm)).items()):
+            path = stage / filename
+            print(f"Collecting {filename}", flush=True)
+            download(url, path)
+            verify_upstream_tree(path, archive_root)
+            member = f"upstream/{filename}"
+            downloads[member] = path
+            origins[member] = url
+            original = archive_notices(path, f"notices/{member}")
+            require(bool(original), f"Missing upstream root notice: {filename}")
+            notices.update(original)
         # Retain original archive notices if present; never overwrite different text.
         for member, data in supplemental.items():
             require(
@@ -276,7 +333,7 @@ def collect(root: Path) -> Path:
         missing_notices = sorted(
             member
             for member in downloads
-            if member.startswith(("python/", "npm/"))
+            if member.startswith(("python/", "npm/", "upstream/"))
             and not any(n.startswith(f"notices/{member}/") for n in notices)
         )
         records = {
@@ -372,7 +429,7 @@ def verify(path: Path, evidence: bytes) -> dict[str, object]:
     notices = object_dict(manifest["notices"])
     require(
         set(records) == set(downloads) | set(notices) | {"source-manifest.json"}
-        and all(n.startswith(("rpm/", "python/", "npm/")) for n in downloads)
+        and all(n.startswith(("rpm/", "python/", "npm/", "upstream/")) for n in downloads)
         and all(n.startswith("notices/") for n in notices),
         "Source asset inventory mismatch",
     )
@@ -397,6 +454,19 @@ def verify(path: Path, evidence: bytes) -> dict[str, object]:
         and expected_npm == {n for n in downloads if n.startswith("npm/")},
         "Missing exact Python or npm sources",
     )
+    upstream = upstream_sources({name.removeprefix("npm/") for name in expected_npm})
+    require(
+        {f"upstream/{name}" for name in upstream}
+        == {name for name in downloads if name.startswith("upstream/")},
+        "Missing exact upstream source trees",
+    )
+    for filename, (url, _) in upstream.items():
+        member = f"upstream/{filename}"
+        require(object_dict(downloads[member]).get("url") == url, "Upstream source URL mismatch")
+        require(
+            any(name.startswith(f"notices/{member}/") for name in notices),
+            f"Missing upstream root notice: {filename}",
+        )
     for member, raw in downloads.items():
         record = object_dict(raw)
         require(
