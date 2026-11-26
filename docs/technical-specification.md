@@ -143,9 +143,9 @@ sequenceDiagram
     R->>N: Speaking / toast / frame (epoch)
     N->>H: Incremental JSON lines
     Note over N,H: Connection loss
-    H->>H: Disconnect barrier; clear and hide
+    H->>H: Disconnect barrier, clear and hide
     N->>H: Retry connection
-    R->>N: Observe new epoch; fresh state
+    R->>N: Observe new epoch, fresh state
     N->>H: state JSON line
 ```
 
