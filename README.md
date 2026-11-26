@@ -13,6 +13,47 @@ original overlay and its foundation.
 the official Discord Flatpak with Vencord already installed. Other platforms
 and installation layouts are not yet validated.
 
+## Project purpose and disclaimer
+
+VencOverlay is an independent, open-source educational project developed to
+learn Python and gain practical experience in software engineering and project
+management through the refactoring and continued development of an existing
+open-source application.
+
+The project provides a practical environment for learning and applying:
+
+- Python programming, software architecture and maintainable code design.
+- Project planning, requirements management and technical documentation.
+- Automated testing, static analysis, quality assurance and acceptance testing.
+- Cross-platform development, dependency management and build engineering.
+- Software packaging, deployment, release management and distribution verification.
+- Open-source licensing, attribution and responsible software maintenance.
+
+### Third-party software and platform policies
+
+VencOverlay is an unofficial project and is not affiliated with, endorsed by
+or sponsored by Discord, Vencord or Vesktop.
+
+VencOverlay integrates with third-party software that modifies or provides an
+alternative client for Discord. Discord prohibits unauthorised client
+modifications under its published terms and policies. Using such software may
+result in restrictions, suspension or termination of a Discord account.
+
+The educational purpose of this project does not constitute authorisation from
+Discord or an exemption from its terms or policies. Users should review the
+applicable terms and understand the associated risks before installing or using
+VencOverlay. The project is not intended to facilitate abuse, automate user
+account actions or circumvent platform restrictions.
+
+VencOverlay is provided without warranty, subject to the terms of its
+[GNU General Public License](LICENSE).
+
+Relevant policies and information:
+
+- [Discord Terms of Service](https://discord.com/terms)
+- [Discord Platform Manipulation Policy](https://discord.com/safety/platform-manipulation-policy-explainer)
+- [Vencord Support and FAQ](https://vencord.dev/support/)
+
 ## Installation
 
 ### 1. Check the requirements
@@ -226,6 +267,18 @@ but Vesktop installation is not implemented. Windows has no graphical backend
 yet. Live webcam testing is deferred. Automatic repatching after Discord or
 Vencord updates is not implemented.
 
+## Project roadmap
+
+Future development focuses on extending Discord and Vesktop integration across
+Fedora, Debian, Ubuntu, Arch Linux, CachyOS and Manjaro, then Windows 11 and
+lower-priority macOS support, including development, build, installation and
+runtime validation. Future
+functionality also includes investigating the feasibility of replacing webcam
+thumbnails with stream and screen-share thumbnails. See the
+[project roadmap](docs/roadmap.md) for planned platforms, installation targets,
+feature investigations and acceptance criteria. Planned targets and features
+are not yet supported.
+
 ## Building from source
 
 A Git clone or GitHub source archive does not include the compiled artifacts.
@@ -254,6 +307,8 @@ to Git.
 | [Release installation](docs/release-installation.md) | Standalone instructions included in each prebuilt package. |
 | [Flatpak installation](docs/flatpak-installation.md) | Detailed compatibility, installation modes, recovery and removal. |
 | [Technical specification](docs/technical-specification.md) | End-to-end architecture, contracts and implementation. |
+| [Project roadmap](docs/roadmap.md) | Planned platform and client integration, feature investigations, development milestones and validation coverage. |
+| [Engineering case study](docs/case-study.md) | Retrospective of the refactor, engineering decisions, testing and first development release. |
 | [Development and builds](docs/development.md) | Build from source, run the demo, validate and maintain the project. |
 | [Frontend development](docs/frontend-development.md) | Pinned Vencord toolchain, plugin development and distribution. |
 
